@@ -6,6 +6,7 @@ import re
 import sha
 import sys
 import time
+import xml.dom.minidom
 
 access = None
 secret = None
@@ -37,9 +38,14 @@ def listbuckets():
     s3.request("GET", "/", headers = {'Date': t, 'Authorization': "AWS "+access+":"+base64.encodestring(hmac.new(secret, "GET\n\n\n"+t+"\n/", sha).digest()).strip()})
     r = s3.getresponse()
     if r.status == 200:
-        sys.stdout.write(r.read())
+        data = r.read()
+        #print data
+        doc = xml.dom.minidom.parseString(data)
+        for b in doc.getElementsByTagName("Bucket"):
+            print b.getElementsByTagName("Name")[0].firstChild.data
     else:
         print >>sys.stderr, "Error:", r.status
+        print r.read()
         sys.exit(1)
 
 def create(name):
@@ -47,9 +53,10 @@ def create(name):
     s3.request("PUT", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+access+":"+base64.encodestring(hmac.new(secret, "PUT\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
     r = s3.getresponse()
     if r.status == 200:
-        sys.stdout.write(r.read())
+        print r.getheader("Location")
     else:
         print >>sys.stderr, "Error:", r.status
+        print r.read()
         sys.exit(1)
 
 def list(name):
@@ -57,9 +64,18 @@ def list(name):
     s3.request("GET", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+access+":"+base64.encodestring(hmac.new(secret, "GET\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
     r = s3.getresponse()
     if r.status == 200:
-        sys.stdout.write(r.read())
+        data = r.read()
+        #print data
+        doc = xml.dom.minidom.parseString(data)
+        if doc.documentElement.tagName == "ListAllMyBucketsResult":
+            for b in doc.getElementsByTagName("Bucket"):
+                print b.getElementsByTagName("Name")[0].firstChild.data
+        elif doc.documentElement.tagName == "ListBucketResult":
+            for b in doc.getElementsByTagName("Contents"):
+                print b.getElementsByTagName("Key")[0].firstChild.data
     else:
         print >>sys.stderr, "Error:", r.status
+        print r.read()
         sys.exit(1)
 
 def put(name):
@@ -71,6 +87,7 @@ def put(name):
         sys.stdout.write(r.read())
     else:
         print >>sys.stderr, "Error:", r.status
+        print r.read()
         sys.exit(1)
 
 def get(name):
@@ -81,12 +98,24 @@ def get(name):
         sys.stdout.write(r.read())
     else:
         print >>sys.stderr, "Error:", r.status
+        print r.read()
+        sys.exit(1)
+
+def delete(name):
+    t = now()
+    s3.request("DELETE", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+access+":"+base64.encodestring(hmac.new(secret, "DELETE\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
+    r = s3.getresponse()
+    if r.status == 204:
+        sys.stdout.write(r.read())
+    else:
+        print >>sys.stderr, "Error:", r.status
+        print r.read()
         sys.exit(1)
 
 def main():
     readConfig()
     global access, secret, s3
-    s3 = httplib.HTTPSConnection("s3.amazonaws.com")
+    s3 = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
     a = 1
     command = None
     while a < len(sys.argv):
