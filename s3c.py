@@ -30,13 +30,31 @@ def readConfig():
     if 'S3SECRET' in os.environ:
         Secret = os.environ['S3SECRET']
 
-def now():
-    return time.strftime("%a, %d %b %Y %T GMT", time.gmtime())
+class S3Store:
+    def __init__(self, access, secret):
+        self.access = access
+        self.secret = secret
+        self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
+
+    def _exec(self, method, name, data = None, headers = {}):
+        if not 'Date' in headers:
+            headers['Date'] = time.strftime("%a, %d %b %Y %T GMT", time.gmtime())
+        sig = method + "\n"
+        if 'Content-MD5' in headers:
+            sig += headers['Content-MD5']
+        sig += "\n"
+        if 'Content-Type' in headers:
+            sig += headers['Content-Type']
+        sig += "\n"
+        sig += headers['Date'] + "\n"
+        # TODO: headers
+        sig += name
+        headers['Authorization'] = "AWS %s:%s" % (self.access, base64.encodestring(hmac.new(self.secret, sig, sha).digest()).strip())
+        self.server.request(method, name, data, headers)
+        return self.server.getresponse()
 
 def create(name):
-    t = now()
-    s3.request("PUT", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+Access+":"+base64.encodestring(hmac.new(Secret, "PUT\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
-    r = s3.getresponse()
+    r = s3._exec("PUT", "/"+name)
     if r.status == 200:
         print r.getheader("Location")
     else:
@@ -45,9 +63,7 @@ def create(name):
         sys.exit(1)
 
 def list(name):
-    t = now()
-    s3.request("GET", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+Access+":"+base64.encodestring(hmac.new(Secret, "GET\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
-    r = s3.getresponse()
+    r = s3._exec("GET", "/"+name)
     if r.status == 200:
         data = r.read()
         #print data
@@ -64,10 +80,8 @@ def list(name):
         sys.exit(1)
 
 def put(name):
-    t = now()
     data = sys.stdin.read()
-    s3.request("PUT", "/"+name, data, headers = {'Date': t, 'Content-type': "text/html", 'x-amz-acl': "public-read", 'Authorization': "AWS "+Access+":"+base64.encodestring(hmac.new(Secret, "PUT\n\ntext/html\n"+t+"\nx-amz-acl:public-read\n/"+name, sha).digest()).strip()})
-    r = s3.getresponse()
+    r = s3._exec("PUT", "/"+name, data)
     if r.status == 200:
         sys.stdout.write(r.read())
     else:
@@ -76,9 +90,7 @@ def put(name):
         sys.exit(1)
 
 def get(name):
-    t = now()
-    s3.request("GET", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+Access+":"+base64.encodestring(hmac.new(Secret, "GET\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
-    r = s3.getresponse()
+    r = s3._exec("GET", "/"+name)
     if r.status == 200:
         sys.stdout.write(r.read())
     else:
@@ -87,9 +99,7 @@ def get(name):
         sys.exit(1)
 
 def delete(name):
-    t = now()
-    s3.request("DELETE", "/"+name, headers = {'Date': t, 'Authorization': "AWS "+Access+":"+base64.encodestring(hmac.new(Secret, "DELETE\n\n\n"+t+"\n/"+name, sha).digest()).strip()})
-    r = s3.getresponse()
+    r = s3._exec("DELETE", "/"+name)
     if r.status == 204:
         sys.stdout.write(r.read())
     else:
@@ -100,7 +110,6 @@ def delete(name):
 def main():
     readConfig()
     global Access, Secret, s3
-    s3 = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
     a = 1
     command = None
     while a < len(sys.argv):
@@ -118,6 +127,7 @@ def main():
             command = sys.argv[a]
             a += 1
             break
+    s3 = S3Store(Access, Secret)
     if command == "create":
         create(sys.argv[a])
     elif command == "list":
