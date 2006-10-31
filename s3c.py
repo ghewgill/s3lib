@@ -4,7 +4,6 @@ import httplib
 import os
 import re
 import sha
-#import SOAPpy
 import sys
 import time
 
@@ -29,83 +28,6 @@ def readConfig():
         access = os.environ['S3ACCESS']
     if 'S3SECRET' in os.environ:
         secret = os.environ['S3SECRET']
-
-#   SOAP stuff:
-
-#   def now():
-#       return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
-
-#   def create(name):
-#       p = {
-#           'Bucket': name,
-#           'AWSAccessKeyId': access,
-#           'Timestamp': now(),
-#       }
-#       p['Signature'] = base64.encodestring(hmac.new(secret, "AmazonS3"+"CreateBucket"+p['Timestamp'], sha).digest())
-#       print s3.CreateBucket(**p)
-
-#   def list(name):
-#       p = {
-#           'Bucket': name,
-#           'AWSAccessKeyId': access,
-#           'Timestamp': now(),
-#       }
-#       p['Signature'] = base64.encodestring(hmac.new(secret, "AmazonS3"+"ListBucket"+p['Timestamp'], sha).digest())
-#       print s3.ListBucket(**p)
-
-#   def listbuckets():
-#       p = {
-#           'AWSAccessKeyId': access,
-#           'Timestamp': now(),
-#       }
-#       p['Signature'] = base64.encodestring(hmac.new(secret, "AmazonS3"+"ListAllMyBuckets"+p['Timestamp'], sha).digest())
-#       print s3.ListAllMyBuckets(**p)
-
-#   def put(name):
-#       m = re.match(r"([^/]+)/(.+)", name)
-#       bucket = m.group(1)
-#       key = m.group(2)
-#       data = sys.stdin.read()
-#       p = {
-#           'AWSAccessKeyId': access,
-#           'Timestamp': now(),
-#           'Bucket': bucket,
-#           'Key': key,
-#           'Data': base64.encodestring(data),
-#           'ContentLength': len(data),
-#           'Metadata': {'Name': "Content-Type", 'Value': "text/plain"},
-#           #'AccessControlList': {},
-#       }
-#       p['Signature'] = base64.encodestring(hmac.new(secret, "AmazonS3"+"PutObjectInline"+p['Timestamp'], sha).digest())
-#       print s3.PutObjectInline(**p)
-
-#   def get(name):
-#       m = re.match(r"([^/]+)/(.+)", name)
-#       bucket = m.group(1)
-#       key = m.group(2)
-#       p = {
-#           'AWSAccessKeyId': access,
-#           'Timestamp': now(),
-#           'Bucket': bucket,
-#           'Key': key,
-#           'GetData': True,
-#           'InlineData': True,
-#       }
-#       p['Signature'] = base64.encodestring(hmac.new(secret, "AmazonS3"+"GetObject"+p['Timestamp'], sha).digest())
-#       print s3.GetObject(**p)
-
-#   def delete(name):
-#       m = re.match(r"([^/]+)/(.+)", name)
-#       bucket = m.group(1)
-#       key = m.group(2)
-#       p = {
-#           'AWSAccessKeyId': access,
-#           'Timestamp': now(),
-#           'Bucket': bucket,
-#           'Key': key,
-#       }
-#       p['Signature'] = base64.encodestring(hmac.new(secret, "AmazonS3"+"DeleteObject"+p['Timestamp'], sha).digest())
-#       print s3.DeleteObject(**p)
 
 def now():
     return time.strftime("%a, %d %b %Y %T GMT", time.gmtime())
@@ -164,7 +86,6 @@ def get(name):
 def main():
     readConfig()
     global access, secret, s3
-    #s3 = SOAPpy.SOAPProxy("https://s3.amazonaws.com/soap", namespace="http://s3.amazonaws.com/doc/2006-03-01/", config = SOAPpy.SOAPConfig(dumpSOAPOut = True))
     s3 = httplib.HTTPSConnection("s3.amazonaws.com")
     a = 1
     command = None
