@@ -21,7 +21,9 @@ Secret = None
 def readConfig():
     global Access, Secret
     fn = ".s3crc"
-    if 'HOME' in os.environ:
+    if 'S3CRC' in os.environ:
+        fn = os.environ['S3CRC']
+    elif 'HOME' in os.environ:
         fn = os.environ['HOME']+os.path.sep+fn
     elif 'HOMEDRIVE' in os.environ and 'HOMEPATH' in os.environ:
         fn = os.environ['HOMEDRIVE']+os.environ['HOMEPATH']+os.path.sep+fn
@@ -92,7 +94,7 @@ class S3Store:
         self.secret = secret
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
 
-    def _exec(self, method, name, data = None, headers = {}, query = None):
+    def _exec(self, method, name, data = None, headers = {}, query = ""):
         if not 'Date' in headers:
             headers['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
         sig = method + "\n"
