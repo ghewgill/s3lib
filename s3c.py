@@ -13,18 +13,28 @@ Secret = None
 
 def readConfig():
     global Access, Secret
-    f = open(os.environ['HOME']+"/.s3crc")
-    for s in f:
-        m = re.match(r"(\w+)\s+(\S+)", s)
-        if not m:
-            continue
-        if m.group(1) == "access":
-            Access = m.group(2)
-        elif m.group(1) == "secret":
-            Secret = m.group(2)
-        else:
-            continue
-    f.close()
+    fn = ".s3crc"
+    if 'HOME' in os.environ:
+        fn = os.environ['HOME']+os.path.sep+fn
+    elif 'HOMEDRIVE' in os.environ and 'HOMEPATH' in os.environ:
+        fn = os.environ['HOMEDRIVE']+os.environ['HOMEPATH']+os.path.sep+fn
+    f = None
+    try:
+        f = open(fn)
+        for s in f:
+            m = re.match(r"(\w+)\s+(\S+)", s)
+            if not m:
+                continue
+            if m.group(1) == "access":
+                Access = m.group(2)
+            elif m.group(1) == "secret":
+                Secret = m.group(2)
+            else:
+                continue
+        f.close()
+    except:
+        if f is not None:
+            f.close()
     if 'S3ACCESS' in os.environ:
         Access = os.environ['S3ACCESS']
     if 'S3SECRET' in os.environ:
@@ -38,7 +48,7 @@ class S3Store:
 
     def _exec(self, method, name, data = None, headers = {}):
         if not 'Date' in headers:
-            headers['Date'] = time.strftime("%a, %d %b %Y %T GMT", time.gmtime())
+            headers['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
         sig = method + "\n"
         if 'Content-MD5' in headers:
             sig += headers['Content-MD5']
@@ -127,6 +137,9 @@ def main():
             command = sys.argv[a]
             a += 1
             break
+    if Access is None or Secret is None:
+        print >>sys.stderr, "Need access and secret"
+        sys.exit(1)
     s3 = S3Store(Access, Secret)
     if command == "create":
         create(sys.argv[a])
@@ -141,6 +154,8 @@ def main():
         get(sys.argv[a])
     elif command == "delete":
         delete(sys.argv[a])
+    else:
+        print >>sys.stderr, "Unknown command:", command
 
 if __name__ == "__main__":
     main()
