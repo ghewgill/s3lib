@@ -109,7 +109,7 @@ class S3Store:
         self.server.request(method, name+query, data, headers)
         return self.server.getresponse()
 
-def _get(name, query):
+def _get(name, query = ""):
     r = s3._exec("GET", "/"+name, query = query)
     if r.status == 200:
         return r
@@ -157,9 +157,30 @@ def ls(name):
             print b['Name']
     elif doc.documentElement.tagName == "ListBucketResult":
         s = makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
-        items = [('-rw-------',1,c['Owner']['DisplayName'],c['Owner']['DisplayName'],c['Size'],humantime(c['LastModified']),c['Key'][len(prefix):]) for c in s['Contents']] + [('drw-------',1,'-','-',0,0,c['Prefix']) for c in s['CommonPrefixes']]
+        items = []
+        if len(s['CommonPrefixes']) > 0:
+            buckets = makestruct(xml.dom.minidom.parseString(_get("").read()).documentElement, {'Buckets': "Bucket"})
+            bucketowner = buckets['Owner']['DisplayName']
+            items += [(
+                'drw-------',
+                1,
+                bucketowner,
+                bucketowner,
+                0,
+                0,
+                c['Prefix']
+            ) for c in s['CommonPrefixes']]
+        items += [(
+            '-rw-------',
+            1,
+            c['Owner']['DisplayName'],
+            c['Owner']['DisplayName'],
+            c['Size'],
+            humantime(c['LastModified']),
+            c['Key'][len(prefix):]
+        ) for c in s['Contents']]
         items.sort(lambda x, y: cmp(x[6], y[6]))
-        print_columns((False,True,False,False,True,False,False), items)
+        print_columns((False,True,False,False,True,True,False), items)
 
 def put(name):
     data = sys.stdin.read()
