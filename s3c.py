@@ -121,7 +121,7 @@ def _get(name):
 def create(name):
     r = s3._exec("PUT", "/"+name)
     if r.status == 200:
-        print r.getheader("Location")
+        print "Created:", r.getheader("Location")
     else:
         print >>sys.stderr, "Error:", r.status
         print r.read()
@@ -130,32 +130,26 @@ def create(name):
 def list(name):
     r = _get(name)
     data = r.read()
-    #print data
     doc = xml.dom.minidom.parseString(data)
     if doc.documentElement.tagName == "ListAllMyBucketsResult":
         s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        #pprint(s)
         for b in s['Buckets']:
             print b['Name']
     elif doc.documentElement.tagName == "ListBucketResult":
         s = makestruct(doc.documentElement, {'Contents': None})
-        #pprint(s)
         for c in s['Contents']:
             print c['Key']
 
 def ls(name):
     r = _get(name)
     data = r.read()
-    #print data
     doc = xml.dom.minidom.parseString(data)
     if doc.documentElement.tagName == "ListAllMyBucketsResult":
         s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        #pprint(s)
         for b in s['Buckets']:
             print b['Name']
     elif doc.documentElement.tagName == "ListBucketResult":
         s = makestruct(doc.documentElement, {'Contents': None})
-        #pprint(s)
         print_columns((False,True,False,False,True,False,False),
             [('-rw-------',1,c['Owner']['DisplayName'],c['Owner']['DisplayName'],c['Size'],humantime(c['LastModified']),c['Key']) for c in s['Contents']])
 
@@ -176,7 +170,7 @@ def get(name):
 def delete(name):
     r = s3._exec("DELETE", "/"+name)
     if r.status == 204:
-        sys.stdout.write(r.read())
+        print "Deleted:", name
     else:
         print >>sys.stderr, "Error:", r.status
         print r.read()
