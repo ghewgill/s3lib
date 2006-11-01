@@ -8,12 +8,12 @@ import sha
 import shutil
 import sys
 import time
+import urllib
 import xml.dom.minidom
 
 from pprint import pprint
 
 # TODO
-# - list empty bucket (makestruct populate empty array)
 
 Access = None
 Secret = None
@@ -50,14 +50,14 @@ def readConfig():
 def makestruct(e, arrays = {}):
     r = {}
     r['_tag'] = e.tagName
+    for a in arrays:
+        r[a] = []
     for m in e.childNodes:
         if m.nodeType == xml.dom.Node.ELEMENT_NODE:
             if m.tagName in arrays:
                 if arrays[m.tagName] is not None:
                     r[m.tagName] = [makestruct(x) for x in m.getElementsByTagName(arrays[m.tagName])]
                 else:
-                    if m.tagName not in r:
-                        r[m.tagName] = []
                     r[m.tagName] += [makestruct(m)]
             else:
                 r[m.tagName] = makestruct(m)
@@ -74,7 +74,7 @@ def humantime(ts):
         return time.strftime("%b %d  %Y", time.localtime(t))
 
 def print_columns(align, data):
-    maxwidth = [reduce(max, [len(str(x[c])) for x in data]) for c in range(len(align))]
+    maxwidth = [reduce(max, [len(str(x[c])) for x in data], 0) for c in range(len(align))]
     for d in data:
         s = ""
         for c in range(len(align)):
@@ -92,7 +92,7 @@ class S3Store:
         self.secret = secret
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
 
-    def _exec(self, method, name, data = None, headers = {}):
+    def _exec(self, method, name, data = None, headers = {}, query = None):
         if not 'Date' in headers:
             headers['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
         sig = method + "\n"
@@ -106,11 +106,11 @@ class S3Store:
         # TODO: headers
         sig += name
         headers['Authorization'] = "AWS %s:%s" % (self.access, base64.encodestring(hmac.new(self.secret, sig, sha).digest()).strip())
-        self.server.request(method, name, data, headers)
+        self.server.request(method, name+query, data, headers)
         return self.server.getresponse()
 
-def _get(name):
-    r = s3._exec("GET", "/"+name)
+def _get(name, query):
+    r = s3._exec("GET", "/"+name, query = query)
     if r.status == 200:
         return r
     else:
@@ -141,7 +141,14 @@ def list(name):
             print c['Key']
 
 def ls(name):
-    r = _get(name)
+    m = re.match(r"(.*?)/(.*)", name)
+    prefix = ""
+    if m:
+        bucket = m.group(1)
+        prefix = m.group(2) + "/"
+        r = _get(bucket, "?prefix="+urllib.quote(prefix)+"&delimiter=/")
+    else:
+        r = _get(name, "?delimiter=/")
     data = r.read()
     doc = xml.dom.minidom.parseString(data)
     if doc.documentElement.tagName == "ListAllMyBucketsResult":
@@ -149,9 +156,10 @@ def ls(name):
         for b in s['Buckets']:
             print b['Name']
     elif doc.documentElement.tagName == "ListBucketResult":
-        s = makestruct(doc.documentElement, {'Contents': None})
-        print_columns((False,True,False,False,True,False,False),
-            [('-rw-------',1,c['Owner']['DisplayName'],c['Owner']['DisplayName'],c['Size'],humantime(c['LastModified']),c['Key']) for c in s['Contents']])
+        s = makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
+        items = [('-rw-------',1,c['Owner']['DisplayName'],c['Owner']['DisplayName'],c['Size'],humantime(c['LastModified']),c['Key'][len(prefix):]) for c in s['Contents']] + [('drw-------',1,'-','-',0,0,c['Prefix']) for c in s['CommonPrefixes']]
+        items.sort(lambda x, y: cmp(x[6], y[6]))
+        print_columns((False,True,False,False,True,False,False), items)
 
 def put(name):
     data = sys.stdin.read()
