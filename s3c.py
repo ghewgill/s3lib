@@ -1,12 +1,19 @@
 import base64
+import calendar
 import hmac
 import httplib
 import os
 import re
 import sha
+import shutil
 import sys
 import time
 import xml.dom.minidom
+
+from pprint import pprint
+
+# TODO
+# - list empty bucket (makestruct populate empty array)
 
 Access = None
 Secret = None
@@ -40,6 +47,45 @@ def readConfig():
     if 'S3SECRET' in os.environ:
         Secret = os.environ['S3SECRET']
 
+def makestruct(e, arrays = {}):
+    r = {}
+    r['_tag'] = e.tagName
+    for m in e.childNodes:
+        if m.nodeType == xml.dom.Node.ELEMENT_NODE:
+            if m.tagName in arrays:
+                if arrays[m.tagName] is not None:
+                    r[m.tagName] = [makestruct(x) for x in m.getElementsByTagName(arrays[m.tagName])]
+                else:
+                    if m.tagName not in r:
+                        r[m.tagName] = []
+                    r[m.tagName] += [makestruct(m)]
+            else:
+                r[m.tagName] = makestruct(m)
+        elif m.nodeType == xml.dom.Node.TEXT_NODE:
+            return m.data
+    return r
+
+def humantime(ts):
+    m = re.match(r"(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)(.(\d+))Z$", ts)
+    t = calendar.timegm([int(m.group(i)) for i in range(1, 7)])
+    if time.time() - t < 180*86400:
+        return time.strftime("%b %d %H:%M", time.localtime(t))
+    else:
+        return time.strftime("%b %d  %Y", time.localtime(t))
+
+def print_columns(align, data):
+    maxwidth = [reduce(max, [len(str(x[c])) for x in data]) for c in range(len(align))]
+    for d in data:
+        s = ""
+        for c in range(len(align)):
+            if align[c]:
+                s += " "*(maxwidth[c]-len(str(d[c]))) + str(d[c]) + " "
+            elif c+1 < len(align):
+                s += str(d[c]) + " "*(maxwidth[c]-len(str(d[c]))) + " "
+            else:
+                s += str(d[c])
+        print s
+
 class S3Store:
     def __init__(self, access, secret):
         self.access = access
@@ -63,6 +109,15 @@ class S3Store:
         self.server.request(method, name, data, headers)
         return self.server.getresponse()
 
+def _get(name):
+    r = s3._exec("GET", "/"+name)
+    if r.status == 200:
+        return r
+    else:
+        print >>sys.stderr, "Error:", r.status
+        print r.read()
+        sys.exit(1)
+
 def create(name):
     r = s3._exec("PUT", "/"+name)
     if r.status == 200:
@@ -73,21 +128,36 @@ def create(name):
         sys.exit(1)
 
 def list(name):
-    r = s3._exec("GET", "/"+name)
-    if r.status == 200:
-        data = r.read()
-        #print data
-        doc = xml.dom.minidom.parseString(data)
-        if doc.documentElement.tagName == "ListAllMyBucketsResult":
-            for b in doc.getElementsByTagName("Bucket"):
-                print b.getElementsByTagName("Name")[0].firstChild.data
-        elif doc.documentElement.tagName == "ListBucketResult":
-            for b in doc.getElementsByTagName("Contents"):
-                print b.getElementsByTagName("Key")[0].firstChild.data
-    else:
-        print >>sys.stderr, "Error:", r.status
-        print r.read()
-        sys.exit(1)
+    r = _get(name)
+    data = r.read()
+    #print data
+    doc = xml.dom.minidom.parseString(data)
+    if doc.documentElement.tagName == "ListAllMyBucketsResult":
+        s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
+        #pprint(s)
+        for b in s['Buckets']:
+            print b['Name']
+    elif doc.documentElement.tagName == "ListBucketResult":
+        s = makestruct(doc.documentElement, {'Contents': None})
+        #pprint(s)
+        for c in s['Contents']:
+            print c['Key']
+
+def ls(name):
+    r = _get(name)
+    data = r.read()
+    #print data
+    doc = xml.dom.minidom.parseString(data)
+    if doc.documentElement.tagName == "ListAllMyBucketsResult":
+        s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
+        #pprint(s)
+        for b in s['Buckets']:
+            print b['Name']
+    elif doc.documentElement.tagName == "ListBucketResult":
+        s = makestruct(doc.documentElement, {'Contents': None})
+        #pprint(s)
+        print_columns((False,True,False,False,True,False,False),
+            [('-rw-------',1,c['Owner']['DisplayName'],c['Owner']['DisplayName'],c['Size'],humantime(c['LastModified']),c['Key']) for c in s['Contents']])
 
 def put(name):
     data = sys.stdin.read()
@@ -100,13 +170,8 @@ def put(name):
         sys.exit(1)
 
 def get(name):
-    r = s3._exec("GET", "/"+name)
-    if r.status == 200:
-        sys.stdout.write(r.read())
-    else:
-        print >>sys.stderr, "Error:", r.status
-        print r.read()
-        sys.exit(1)
+    r = _get(name)
+    shutil.copyfileobj(r, sys.stdout)
 
 def delete(name):
     r = s3._exec("DELETE", "/"+name)
@@ -148,6 +213,11 @@ def main():
             list(sys.argv[a])
         else:
             list("")
+    elif command == "ls":
+        if a < len(sys.argv):
+            ls(sys.argv[a])
+        else:
+            ls("")
     elif command == "put":
         put(sys.argv[a])
     elif command == "get":
