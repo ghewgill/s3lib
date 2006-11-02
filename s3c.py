@@ -1,15 +1,11 @@
-import base64
-import calendar
-import hmac
-import httplib
 import os
 import re
-import sha
 import shutil
 import sys
 import time
 import urllib
-import xml.dom.minidom
+
+import s3lib
 
 from pprint import pprint
 
@@ -49,28 +45,6 @@ def readConfig():
     if 'S3SECRET' in os.environ:
         Secret = os.environ['S3SECRET']
 
-def makestruct(e, arrays = {}):
-    r = {}
-    r['_tag'] = e.tagName
-    for a in arrays:
-        r[a] = []
-    for m in e.childNodes:
-        if m.nodeType == xml.dom.Node.ELEMENT_NODE:
-            if m.tagName in arrays:
-                if arrays[m.tagName] is not None:
-                    r[m.tagName] = [makestruct(x) for x in m.getElementsByTagName(arrays[m.tagName])]
-                else:
-                    r[m.tagName] += [makestruct(m)]
-            else:
-                r[m.tagName] = makestruct(m)
-        elif m.nodeType == xml.dom.Node.TEXT_NODE:
-            return m.data
-    return r
-
-def parsetime(ts):
-    m = re.match(r"(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)(.(\d+))?Z$", ts)
-    return calendar.timegm([int(m.group(i)) for i in range(1, 7)])
-
 def humantime(t):
     if time.time() - t < 180*86400:
         return time.strftime("%b %d %H:%M", time.localtime(t))
@@ -89,74 +63,6 @@ def print_columns(align, data):
             else:
                 s += str(d[c])
         print s
-
-class S3Store:
-    def __init__(self, access, secret):
-        self.access = access
-        self.secret = secret
-        self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
-
-    def create(self, bucket):
-        r = self._exec("PUT", "/"+bucket)
-        if r.status != 200:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
-        return r
-
-    def list(self, bucket, query = ""):
-        r = self.get(bucket, query)
-        data = r.read()
-        doc = xml.dom.minidom.parseString(data)
-        if doc.documentElement.tagName == "ListAllMyBucketsResult":
-            assert bucket == ""
-            return makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        elif doc.documentElement.tagName == "ListBucketResult":
-            assert bucket != ""
-            return makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
-        print >>sys.stderr, "s3c: Error: Unexpected element:", doc.documentElement.tagName
-        sys.exit(1)
-
-    def get(self, name, query = ""):
-        r = self._exec("GET", "/"+urllib.quote(name), query = query)
-        if r.status != 200:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
-        return r
-
-    def put(self, name, data):
-        r = self._exec("PUT", "/"+name, data)
-        if r.status != 200:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
-        return r
-
-    def delete(self, name):
-        r = s3._exec("DELETE", "/"+name)
-        if r.status != 204:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
-        return r
-
-    def _exec(self, method, name, data = None, headers = {}, query = ""):
-        if not 'Date' in headers:
-            headers['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
-        sig = method + "\n"
-        if 'Content-MD5' in headers:
-            sig += headers['Content-MD5']
-        sig += "\n"
-        if 'Content-Type' in headers:
-            sig += headers['Content-Type']
-        sig += "\n"
-        sig += headers['Date'] + "\n"
-        # TODO: headers
-        sig += name
-        headers['Authorization'] = "AWS %s:%s" % (self.access, base64.encodestring(hmac.new(self.secret, sig, sha).digest()).strip())
-        self.server.request(method, name+query, data, headers)
-        return self.server.getresponse()
 
 def create(argv):
     for a in range(len(argv)):
@@ -221,7 +127,7 @@ def ls(argv):
                     s['Owner']['DisplayName'],
                     s['Owner']['DisplayName'],
                     sum([int(x['Size']) for x in objects]),
-                    humantime(max([parsetime(x['LastModified']) for x in objects])),
+                    humantime(max([s3lib.parsetime(x['LastModified']) for x in objects])),
                     b['Name']
                 )]
             items.sort(lambda x, y: cmp(x[6], y[6]))
@@ -238,7 +144,7 @@ def ls(argv):
                         bucketowner,
                         bucketowner,
                         sum([int(x['Size']) for x in objects]),
-                        humantime(max([parsetime(x['LastModified']) for x in objects])),
+                        humantime(max([s3lib.parsetime(x['LastModified']) for x in objects])),
                         c['Prefix']
                     )]
             items += [(
@@ -247,7 +153,7 @@ def ls(argv):
                 c['Owner']['DisplayName'],
                 c['Owner']['DisplayName'],
                 c['Size'],
-                humantime(parsetime(c['LastModified'])),
+                humantime(s3lib.parsetime(c['LastModified'])),
                 c['Key'][len(prefix):]
             ) for c in s['Contents']]
             items.sort(lambda x, y: cmp(x[6], y[6]))
@@ -301,7 +207,7 @@ def main():
     if Access is None or Secret is None:
         print >>sys.stderr, "s3c: Need access and secret"
         sys.exit(1)
-    s3 = S3Store(Access, Secret)
+    s3 = s3lib.S3Store(Access, Secret)
     if command == "create":
         create(sys.argv[a:])
     elif command == "list":
