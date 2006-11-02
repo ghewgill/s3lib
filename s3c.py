@@ -96,6 +96,51 @@ class S3Store:
         self.secret = secret
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
 
+    def create(self, bucket):
+        r = self._exec("PUT", "/"+bucket)
+        if r.status != 200:
+            print >>sys.stderr, "s3c: Error:", r.status
+            print r.read()
+            sys.exit(1)
+        return r
+
+    def list(self, bucket, query = ""):
+        r = self.get(bucket, query)
+        data = r.read()
+        doc = xml.dom.minidom.parseString(data)
+        if doc.documentElement.tagName == "ListAllMyBucketsResult":
+            assert bucket == ""
+            return makestruct(doc.documentElement, {'Buckets': "Bucket"})
+        elif doc.documentElement.tagName == "ListBucketResult":
+            assert bucket != ""
+            return makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
+        print >>sys.stderr, "s3c: Error: Unexpected element:", doc.documentElement.tagName
+        sys.exit(1)
+
+    def get(self, name, query = ""):
+        r = self._exec("GET", "/"+urllib.quote(name), query = query)
+        if r.status != 200:
+            print >>sys.stderr, "s3c: Error:", r.status
+            print r.read()
+            sys.exit(1)
+        return r
+
+    def put(self, name, data):
+        r = self._exec("PUT", "/"+name, data)
+        if r.status != 200:
+            print >>sys.stderr, "s3c: Error:", r.status
+            print r.read()
+            sys.exit(1)
+        return r
+
+    def delete(self, name):
+        r = s3._exec("DELETE", "/"+name)
+        if r.status != 204:
+            print >>sys.stderr, "s3c: Error:", r.status
+            print r.read()
+            sys.exit(1)
+        return r
+
     def _exec(self, method, name, data = None, headers = {}, query = ""):
         if not 'Date' in headers:
             headers['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
@@ -113,111 +158,125 @@ class S3Store:
         self.server.request(method, name+query, data, headers)
         return self.server.getresponse()
 
-def _get(name, query = ""):
-    r = s3._exec("GET", "/"+name, query = query)
-    if r.status == 200:
-        return r
-    else:
-        print >>sys.stderr, "Error:", r.status
-        print r.read()
-        sys.exit(1)
-
-def create(name):
-    r = s3._exec("PUT", "/"+name)
-    if r.status == 200:
+def create(argv):
+    for a in range(len(argv)):
+        name = argv[a]
+        if name[0] == "/":
+            name = name[1:]
+        if "/" in name:
+            print >>sys.stderr, "s3c: bucket name cannot contain /"
+            sys.exit(1)
+        r = s3.create(name)
         print "Created:", r.getheader("Location")
-    else:
-        print >>sys.stderr, "Error:", r.status
-        print r.read()
-        sys.exit(1)
 
-def list(name):
-    r = _get(name)
-    data = r.read()
-    doc = xml.dom.minidom.parseString(data)
-    if doc.documentElement.tagName == "ListAllMyBucketsResult":
-        s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        for b in s['Buckets']:
-            print b['Name']
-    elif doc.documentElement.tagName == "ListBucketResult":
-        s = makestruct(doc.documentElement, {'Contents': None})
-        for c in s['Contents']:
-            print c['Key']
+def list(argv):
+    if len(argv) == 0:
+        argv = ["/"]
+    for a in range(len(argv)):
+        if len(argv) > 1:
+            print "%s:" % argv[a]
+        name = argv[a]
+        if name[0] == "/":
+            name = name[1:]
+        if "/" in name:
+            print >>sys.stderr, "s3c: bucket name cannot contain /"
+            sys.exit(1)
+        s = s3.list(name)
+        if s['_tag'] == "ListAllMyBucketsResult":
+            for b in s['Buckets']:
+                print b['Name']
+        elif s['_tag'] == "ListBucketResult":
+            for c in s['Contents']:
+                print c['Key']
+        if len(argv) > 1:
+            print
 
-def ls(name):
-    m = re.match(r"(.*?)/(.*)", name)
-    prefix = ""
-    if m:
-        bucket = m.group(1)
-        prefix = m.group(2) + "/"
-        r = _get(bucket, "?prefix="+urllib.quote(prefix)+"&delimiter=/")
-    else:
-        bucket = name
-        r = _get(bucket, "?delimiter=/")
-    data = r.read()
-    doc = xml.dom.minidom.parseString(data)
-    if doc.documentElement.tagName == "ListAllMyBucketsResult":
-        s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        items = [(
-            'drw-------',
-            1,
-            s['Owner']['DisplayName'],
-            s['Owner']['DisplayName'],
-            sum([int(x['Size']) for x in makestruct(xml.dom.minidom.parseString(_get(b['Name']).read()).documentElement, {'Contents': None})['Contents']]),
-            humantime(max([parsetime(x['LastModified']) for x in makestruct(xml.dom.minidom.parseString(_get(b['Name']).read()).documentElement, {'Contents': None})['Contents']])),
-            b['Name']
-        ) for b in s['Buckets']]
-        items.sort(lambda x, y: cmp(x[6], y[6]))
-        print_columns((False,True,False,False,True,True,False), items)
-    elif doc.documentElement.tagName == "ListBucketResult":
-        s = makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
-        items = []
-        if len(s['CommonPrefixes']) > 0:
-            buckets = makestruct(xml.dom.minidom.parseString(_get("").read()).documentElement, {'Buckets': "Bucket"})
-            bucketowner = buckets['Owner']['DisplayName']
+def ls(argv):
+    if len(argv) == 0:
+        argv = ["/"]
+    for a in range(len(argv)):
+        if len(argv) > 1:
+            print "%s:" % argv[a]
+        name = argv[a]
+        if name[0] == "/":
+            name = name[1:]
+        m = re.match(r"(.*?)/(.+)", name)
+        prefix = ""
+        if m:
+            bucket = m.group(1)
+            prefix = m.group(2)
+            if prefix[len(prefix)-1] != "/":
+                prefix += "/"
+            s = s3.list(bucket, "?prefix="+urllib.quote(prefix)+"&delimiter=/")
+        else:
+            bucket = name
+            s = s3.list(bucket, "?delimiter=/")
+        if s['_tag'] == "ListAllMyBucketsResult":
+            items = []
+            for b in s['Buckets']:
+                objects = s3.list(b['Name'])['Contents']
+                items += [(
+                    'drw-------',
+                    1,
+                    s['Owner']['DisplayName'],
+                    s['Owner']['DisplayName'],
+                    sum([int(x['Size']) for x in objects]),
+                    humantime(max([parsetime(x['LastModified']) for x in objects])),
+                    b['Name']
+                )]
+            items.sort(lambda x, y: cmp(x[6], y[6]))
+            print_columns((False,True,False,False,True,True,False), items)
+        elif s['_tag'] == "ListBucketResult":
+            items = []
+            if len(s['CommonPrefixes']) > 0:
+                bucketowner = s3.list("")['Owner']['DisplayName']
+                for c in s['CommonPrefixes']:
+                    objects = s3.list(bucket, "?prefix="+urllib.quote(c['Prefix']))['Contents']
+                    items += [(
+                        'drw-------',
+                        1,
+                        bucketowner,
+                        bucketowner,
+                        sum([int(x['Size']) for x in objects]),
+                        humantime(max([parsetime(x['LastModified']) for x in objects])),
+                        c['Prefix']
+                    )]
             items += [(
-                'drw-------',
+                '-rw-------',
                 1,
-                bucketowner,
-                bucketowner,
-                sum([int(x['Size']) for x in makestruct(xml.dom.minidom.parseString(_get(bucket, "?prefix="+urllib.quote(c['Prefix'])).read()).documentElement, {'Contents': None})['Contents']]),
-                humantime(max([parsetime(x['LastModified']) for x in makestruct(xml.dom.minidom.parseString(_get(bucket, "?prefix="+urllib.quote(c['Prefix'])).read()).documentElement, {'Contents': None})['Contents']])),
-                c['Prefix']
-            ) for c in s['CommonPrefixes']]
-        items += [(
-            '-rw-------',
-            1,
-            c['Owner']['DisplayName'],
-            c['Owner']['DisplayName'],
-            c['Size'],
-            humantime(parsetime(c['LastModified'])),
-            c['Key'][len(prefix):]
-        ) for c in s['Contents']]
-        items.sort(lambda x, y: cmp(x[6], y[6]))
-        print_columns((False,True,False,False,True,True,False), items)
+                c['Owner']['DisplayName'],
+                c['Owner']['DisplayName'],
+                c['Size'],
+                humantime(parsetime(c['LastModified'])),
+                c['Key'][len(prefix):]
+            ) for c in s['Contents']]
+            items.sort(lambda x, y: cmp(x[6], y[6]))
+            print_columns((False,True,False,False,True,True,False), items)
+        if len(argv) > 1:
+            print
 
-def put(name):
-    data = sys.stdin.read()
-    r = s3._exec("PUT", "/"+name, data)
-    if r.status == 200:
-        sys.stdout.write(r.read())
-    else:
-        print >>sys.stderr, "Error:", r.status
-        print r.read()
-        sys.exit(1)
-
-def get(name):
-    r = _get(name)
+def get(argv):
+    name = argv[0]
+    if name[0] == "/":
+        name = name[1:]
+    r = s3.get(name)
     shutil.copyfileobj(r, sys.stdout)
 
-def delete(name):
-    r = s3._exec("DELETE", "/"+name)
-    if r.status == 204:
+def put(argv):
+    name = argv[0]
+    if name[0] == "/":
+        name = name[1:]
+    data = sys.stdin.read()
+    r = s3.put(name, data)
+    print "Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
+
+def delete(argv):
+    for a in range(len(argv)):
+        name = argv[a]
+        if name[0] == "/":
+            name = name[1:]
+        s3.delete(name)
         print "Deleted:", name
-    else:
-        print >>sys.stderr, "Error:", r.status
-        print r.read()
-        sys.exit(1)
 
 def main():
     readConfig()
@@ -233,36 +292,30 @@ def main():
                 a += 1
                 Secret = sys.argv[a]
             else:
-                print >>sys.stderr, "Unknown option:", sys.argv[a]
+                print >>sys.stderr, "s3c: Unknown option:", sys.argv[a]
                 sys.exit(1)
         else:
             command = sys.argv[a]
             a += 1
             break
     if Access is None or Secret is None:
-        print >>sys.stderr, "Need access and secret"
+        print >>sys.stderr, "s3c: Need access and secret"
         sys.exit(1)
     s3 = S3Store(Access, Secret)
     if command == "create":
-        create(sys.argv[a])
+        create(sys.argv[a:])
     elif command == "list":
-        if a < len(sys.argv):
-            list(sys.argv[a])
-        else:
-            list("")
+        list(sys.argv[a:])
     elif command == "ls":
-        if a < len(sys.argv):
-            ls(sys.argv[a])
-        else:
-            ls("")
-    elif command == "put":
-        put(sys.argv[a])
+        ls(sys.argv[a:])
     elif command == "get":
-        get(sys.argv[a])
+        get(sys.argv[a:])
+    elif command == "put":
+        put(sys.argv[a:])
     elif command == "delete":
-        delete(sys.argv[a])
+        delete(sys.argv[a:])
     else:
-        print >>sys.stderr, "Unknown command:", command
+        print >>sys.stderr, "s3c: Unknown command:", command
 
 if __name__ == "__main__":
     main()
