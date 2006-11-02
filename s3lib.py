@@ -30,6 +30,18 @@ def parsetime(ts):
     m = re.match(r"(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)(.(\d+))?Z$", ts)
     return calendar.timegm([int(m.group(i)) for i in range(1, 7)])
 
+class S3Exception(Exception):
+    def __init__(self, r):
+        self.status = r.status
+        doc = xml.dom.minidom.parseString(r.read())
+        self.info = makestruct(doc.documentElement)
+
+    def __str__(self):
+        if 'BucketName' in self.info:
+            return "%s: %s (%s)" % (self.info['Code'], self.info['Message'], self.info['BucketName'])
+        else:
+            return "%s: %s" % (self.info['Code'], self.info['Message'])
+
 class S3Store:
     def __init__(self, access, secret):
         self.access = access
@@ -39,9 +51,7 @@ class S3Store:
     def create(self, bucket):
         r = self._exec("PUT", "/"+bucket)
         if r.status != 200:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
+            raise S3Exception(r)
         return r
 
     def list(self, bucket, query = ""):
@@ -54,31 +64,24 @@ class S3Store:
         elif doc.documentElement.tagName == "ListBucketResult":
             assert bucket != ""
             return makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
-        print >>sys.stderr, "s3c: Error: Unexpected element:", doc.documentElement.tagName
-        sys.exit(1)
+        raise Exception("s3c: Error: Unexpected element: %s" % doc.documentElement.tagName)
 
     def get(self, name, query = ""):
         r = self._exec("GET", "/"+urllib.quote(name), query = query)
         if r.status != 200:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
+            raise S3Exception(r)
         return r
 
     def put(self, name, data):
         r = self._exec("PUT", "/"+name, data)
         if r.status != 200:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
+            raise S3Exception(r)
         return r
 
     def delete(self, name):
         r = self._exec("DELETE", "/"+name)
         if r.status != 204:
-            print >>sys.stderr, "s3c: Error:", r.status
-            print r.read()
-            sys.exit(1)
+            raise S3Exception(r)
         return r
 
     def _exec(self, method, name, data = None, headers = {}, query = ""):

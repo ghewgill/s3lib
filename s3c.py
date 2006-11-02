@@ -7,10 +7,6 @@ import urllib
 
 import s3lib
 
-from pprint import pprint
-
-# TODO
-
 Access = None
 Secret = None
 
@@ -73,7 +69,7 @@ def create(argv):
             print >>sys.stderr, "s3c: bucket name cannot contain /"
             sys.exit(1)
         r = s3.create(name)
-        print "Created:", r.getheader("Location")
+        print "s3c: Created", r.getheader("Location")
 
 def list(argv):
     if len(argv) == 0:
@@ -174,7 +170,7 @@ def put(argv):
         name = name[1:]
     data = sys.stdin.read()
     r = s3.put(name, data)
-    print "Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
+    print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
 
 def delete(argv):
     for a in range(len(argv)):
@@ -182,7 +178,7 @@ def delete(argv):
         if name[0] == "/":
             name = name[1:]
         s3.delete(name)
-        print "Deleted:", name
+        print "s3c: Deleted", name
 
 def main():
     readConfig()
