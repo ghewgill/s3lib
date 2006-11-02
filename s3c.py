@@ -67,9 +67,11 @@ def makestruct(e, arrays = {}):
             return m.data
     return r
 
-def humantime(ts):
-    m = re.match(r"(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)(.(\d+))Z$", ts)
-    t = calendar.timegm([int(m.group(i)) for i in range(1, 7)])
+def parsetime(ts):
+    m = re.match(r"(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)(.(\d+))?Z$", ts)
+    return calendar.timegm([int(m.group(i)) for i in range(1, 7)])
+
+def humantime(t):
     if time.time() - t < 180*86400:
         return time.strftime("%b %d %H:%M", time.localtime(t))
     else:
@@ -150,13 +152,23 @@ def ls(name):
         prefix = m.group(2) + "/"
         r = _get(bucket, "?prefix="+urllib.quote(prefix)+"&delimiter=/")
     else:
-        r = _get(name, "?delimiter=/")
+        bucket = name
+        r = _get(bucket, "?delimiter=/")
     data = r.read()
     doc = xml.dom.minidom.parseString(data)
     if doc.documentElement.tagName == "ListAllMyBucketsResult":
         s = makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        for b in s['Buckets']:
-            print b['Name']
+        items = [(
+            'drw-------',
+            1,
+            s['Owner']['DisplayName'],
+            s['Owner']['DisplayName'],
+            sum([int(x['Size']) for x in makestruct(xml.dom.minidom.parseString(_get(b['Name']).read()).documentElement, {'Contents': None})['Contents']]),
+            humantime(max([parsetime(x['LastModified']) for x in makestruct(xml.dom.minidom.parseString(_get(b['Name']).read()).documentElement, {'Contents': None})['Contents']])),
+            b['Name']
+        ) for b in s['Buckets']]
+        items.sort(lambda x, y: cmp(x[6], y[6]))
+        print_columns((False,True,False,False,True,True,False), items)
     elif doc.documentElement.tagName == "ListBucketResult":
         s = makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
         items = []
@@ -168,8 +180,8 @@ def ls(name):
                 1,
                 bucketowner,
                 bucketowner,
-                0,
-                0,
+                sum([int(x['Size']) for x in makestruct(xml.dom.minidom.parseString(_get(bucket, "?prefix="+urllib.quote(c['Prefix'])).read()).documentElement, {'Contents': None})['Contents']]),
+                humantime(max([parsetime(x['LastModified']) for x in makestruct(xml.dom.minidom.parseString(_get(bucket, "?prefix="+urllib.quote(c['Prefix'])).read()).documentElement, {'Contents': None})['Contents']])),
                 c['Prefix']
             ) for c in s['CommonPrefixes']]
         items += [(
@@ -178,7 +190,7 @@ def ls(name):
             c['Owner']['DisplayName'],
             c['Owner']['DisplayName'],
             c['Size'],
-            humantime(c['LastModified']),
+            humantime(parsetime(c['LastModified'])),
             c['Key'][len(prefix):]
         ) for c in s['Contents']]
         items.sort(lambda x, y: cmp(x[6], y[6]))
