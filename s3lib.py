@@ -52,6 +52,7 @@ class S3Store:
         r = self._exec("PUT", "/"+bucket)
         if r.status != 200:
             raise S3Exception(r)
+        r.read()
         return r
 
     def list(self, bucket, query = ""):
@@ -76,12 +77,14 @@ class S3Store:
         r = self._exec("PUT", "/"+name, data)
         if r.status != 200:
             raise S3Exception(r)
+        r.read()
         return r
 
     def delete(self, name):
         r = self._exec("DELETE", "/"+name)
         if r.status != 204:
             raise S3Exception(r)
+        r.read()
         return r
 
     def _exec(self, method, name, data = None, headers = {}, query = ""):
