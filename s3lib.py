@@ -56,16 +56,39 @@ class S3Store:
         return r
 
     def list(self, bucket, query = ""):
-        r = self.get(bucket, query)
-        data = r.read()
-        doc = xml.dom.minidom.parseString(data)
-        if doc.documentElement.tagName == "ListAllMyBucketsResult":
-            assert bucket == ""
-            return makestruct(doc.documentElement, {'Buckets': "Bucket"})
-        elif doc.documentElement.tagName == "ListBucketResult":
-            assert bucket != ""
-            return makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
-        raise Exception("s3c: Error: Unexpected element: %s" % doc.documentElement.tagName)
+        ret = None
+        marker = None
+        while True:
+            q = query
+            if marker is not None:
+                if len(q) == 0:
+                    q += "?"
+                else:
+                    q += "&"
+                q += "marker=" + marker
+            r = self.get(bucket, q)
+            data = r.read()
+            doc = xml.dom.minidom.parseString(data)
+            if doc.documentElement.tagName == "ListAllMyBucketsResult":
+                assert bucket == ""
+                return makestruct(doc.documentElement, {'Buckets': "Bucket"})
+            elif doc.documentElement.tagName == "ListBucketResult":
+                assert bucket != ""
+                s = makestruct(doc.documentElement, {'Contents': None, 'CommonPrefixes': None})
+                if ret is None:
+                    ret = s
+                else:
+                    ret['Contents'] += s['Contents']
+                    ret['CommonPrefixes'] += s['CommonPrefixes']
+                if s['IsTruncated'] == "false":
+                    break
+                if 'NextMarker' in s:
+                    marker = s['NextMarker']
+                else:
+                    marker = s['Contents'][-1]['Key']
+            else:
+                raise Exception("s3c: Error: Unexpected element: %s" % doc.documentElement.tagName)
+        return ret
 
     def get(self, name, query = ""):
         r = self._exec("GET", "/"+urllib.quote(name), query = query)
