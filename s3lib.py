@@ -42,10 +42,36 @@ class S3Exception(Exception):
         else:
             return "%s: %s" % (self.info['Code'], self.info['Message'])
 
+class HTTPResponseLogger:
+    def __init__(self, r, logfile, format):
+        self.r = r
+        self.logfile = logfile
+        self.format = format
+        self.total = 0
+
+    def read(self, n = None):
+        if n is None:
+            buf = self.r.read()
+            log = open(self.logfile, "a")
+            print >>log, self.format % len(buf)
+            log.close()
+        else:
+            buf = self.r.read(n)
+            self.total += len(buf)
+            if buf is None:
+                log = open(self.logfile, "a")
+                print >>log, self.format % self.total
+                log.close()
+        return buf
+
+    def __getattr__(self, name):
+        return self.r.__dict__[name]
+
 class S3Store:
-    def __init__(self, access, secret):
+    def __init__(self, access, secret, logfile):
         self.access = access
         self.secret = secret
+        self.logfile = logfile
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
 
     def create(self, bucket):
@@ -125,5 +151,18 @@ class S3Store:
         sig += name
         headers['Authorization'] = "AWS %s:%s" % (self.access, base64.encodestring(hmac.new(self.secret, sig, sha).digest()).strip())
         self.server.request(method, name+query, data, headers)
-        return self.server.getresponse()
+        r = self.server.getresponse()
+        if self.logfile is not None:
+            line = "%s %d %s %s%s" % (self.access, time.time(), method, name, query)
+            if method == "GET":
+                r = HTTPResponseLogger(r, self.logfile, line + " %d")
+            elif method == "PUT":
+                log = open(self.logfile, "a")
+                print >>log, line, len(data)
+                log.close()
+            else:
+                log = open(self.logfile, "a")
+                print >>log, line
+                log.close()
+        return r
 

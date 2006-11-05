@@ -7,11 +7,15 @@ import urllib
 
 import s3lib
 
-Access = None
-Secret = None
+class Config:
+    def __init__(self):
+        self.Access = None
+        self.Secret = None
+        self.Logfile = None
+
+Config = Config()
 
 def readConfig():
-    global Access, Secret
     fn = ".s3crc"
     if 'S3CRC' in os.environ:
         fn = os.environ['S3CRC']
@@ -27,9 +31,11 @@ def readConfig():
             if not m:
                 continue
             if m.group(1) == "access":
-                Access = m.group(2)
+                Config.Access = m.group(2)
             elif m.group(1) == "secret":
-                Secret = m.group(2)
+                Config.Secret = m.group(2)
+            elif m.group(1) == "logfile":
+                Config.Logfile = m.group(2)
             else:
                 continue
         f.close()
@@ -37,9 +43,9 @@ def readConfig():
         if f is not None:
             f.close()
     if 'S3ACCESS' in os.environ:
-        Access = os.environ['S3ACCESS']
+        Config.Access = os.environ['S3ACCESS']
     if 'S3SECRET' in os.environ:
-        Secret = os.environ['S3SECRET']
+        Config.Secret = os.environ['S3SECRET']
 
 def humantime(t):
     if time.time() - t < 180*86400:
@@ -194,7 +200,7 @@ def delete(argv):
         print "s3c: Deleted", name
 
 def main():
-    global Access, Secret, s3
+    global s3
     readConfig()
     a = 1
     command = None
@@ -202,10 +208,10 @@ def main():
         if sys.argv[a][0] == "-":
             if sys.argv[a] == "-a" or sys.argv[a] == "--access":
                 a += 1
-                Access = sys.argv[a]
+                Config.Access = sys.argv[a]
             elif sys.argv[a] == "-s" or sys.argv[a] == "--secret":
                 a += 1
-                Secret = sys.argv[a]
+                Config.Secret = sys.argv[a]
             else:
                 print >>sys.stderr, "s3c: Unknown option:", sys.argv[a]
                 sys.exit(1)
@@ -213,10 +219,10 @@ def main():
             command = sys.argv[a]
             a += 1
             break
-    if Access is None or Secret is None:
+    if Config.Access is None or Config.Secret is None:
         print >>sys.stderr, "s3c: Need access and secret"
         sys.exit(1)
-    s3 = s3lib.S3Store(Access, Secret)
+    s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
     if command == "create":
         create(sys.argv[a:])
     elif command == "list":

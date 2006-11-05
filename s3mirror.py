@@ -15,6 +15,7 @@ class Config:
     def __init__(self):
         self.Access = None
         self.Secret = None
+        self.Logfile = None
         self.EncryptNames = False
         self.IgnoreManifest = False
 
@@ -39,6 +40,8 @@ def readConfig():
                 Config.Access = m.group(2)
             elif m.group(1) == "secret":
                 Config.Secret = m.group(2)
+            elif m.group(1) == "logfile":
+                Config.Logfile = m.group(2)
             else:
                 continue
         f.close()
@@ -137,7 +140,7 @@ def main():
     if Config.Access is None or Config.Secret is None:
         print >>sys.stderr, "s3mirror: Need access and secret"
         sys.exit(1)
-    s3 = s3lib.S3Store(Config.Access, Config.Secret)
+    s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
     for dir, dirs, files in os.walk(source):
         assert dir.startswith(source)
         prefix = dir[len(source):]
@@ -179,6 +182,7 @@ def main():
                 #        manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
         if manifest is None:
             manifest = {}
+        changed = False
         for name in files:
             if name == ".s3mirror-MANIFEST":
                 continue
@@ -198,14 +202,16 @@ def main():
                     'h': h,
                     'm': r.getheader("ETag")
                 }
-        mfdata = cPickle.dumps(manifest)
-        if Config.EncryptNames:
-            s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
-        else:
-            s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
-        mf = open(os.path.join(dir, ".s3mirror-MANIFEST"), "w")
-        mf.write(mfdata)
-        mf.close()
+                changed = True
+        if changed:
+            mfdata = cPickle.dumps(manifest)
+            if Config.EncryptNames:
+                s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
+            else:
+                s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
+            mf = open(os.path.join(dir, ".s3mirror-MANIFEST"), "w")
+            mf.write(mfdata)
+            mf.close()
 
 if __name__ == "__main__":
     main()
