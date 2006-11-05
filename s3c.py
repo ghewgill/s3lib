@@ -141,7 +141,7 @@ def ls(argv):
                         bucketowner,
                         sum([int(x['Size']) for x in objects]),
                         humantime(max([s3lib.parsetime(x['LastModified']) for x in objects])),
-                        c['Prefix']
+                        c['Prefix'][len(prefix):]
                     )]
             items += [(
                 '-rw-------',
@@ -173,16 +173,29 @@ def put(argv):
     print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
 
 def delete(argv):
+    force = False
     for a in range(len(argv)):
+        if argv[a] == "-f":
+            force = True
+            continue
         name = argv[a]
         if name[0] == "/":
             name = name[1:]
-        s3.delete(name)
+        try:
+            s3.delete(name)
+        except s3lib.S3Exception, e:
+            if force and e.info['Code'] == "BucketNotEmpty":
+                keys = s3.list(name)
+                for k in [x['Key'] for x in keys['Contents']]:
+                    s3.delete(name+"/"+k)
+                s3.delete(name)
+            else:
+                raise e
         print "s3c: Deleted", name
 
 def main():
-    readConfig()
     global Access, Secret, s3
+    readConfig()
     a = 1
     command = None
     while a < len(sys.argv):
