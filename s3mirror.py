@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import cPickle
 import hmac
 import md5
