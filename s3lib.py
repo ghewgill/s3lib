@@ -32,6 +32,7 @@ def parsetime(ts):
 
 class S3Exception(Exception):
     def __init__(self, r):
+        Exception.__init__(self)
         self.status = r.status
         doc = xml.dom.minidom.parseString(r.read())
         self.info = makestruct(doc.documentElement)
@@ -136,7 +137,9 @@ class S3Store:
         r.read()
         return r
 
-    def _exec(self, method, name, data = None, headers = {}, query = ""):
+    def _exec(self, method, name, data = None, headers = None, query = ""):
+        if headers is None:
+            headers = {}
         if not 'Date' in headers:
             headers['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
         sig = method + "\n"

@@ -20,6 +20,7 @@ class Config:
         self.IgnoreManifest = False
 
 Config = Config()
+s3 = None
 
 def readConfig():
     fn = ".s3crc"
@@ -141,9 +142,9 @@ def main():
         print >>sys.stderr, "s3mirror: Need access and secret"
         sys.exit(1)
     s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
-    for dir, dirs, files in os.walk(source):
-        assert dir.startswith(source)
-        prefix = dir[len(source):]
+    for base, dirs, files in os.walk(source):
+        assert base.startswith(source)
+        prefix = base[len(source):]
         if not prefix.startswith("/"):
             prefix = "/"+prefix
         if not prefix.endswith("/"):
@@ -151,7 +152,7 @@ def main():
         manifest = None
         if not Config.IgnoreManifest:
             try:
-                mf = open(os.path.join(dir, ".s3mirror-MANIFEST"))
+                mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
                 mfdata = mf.read()
                 mf.close()
                 manifest = cPickle.loads(mfdata)
@@ -170,7 +171,7 @@ def main():
                 #mfi = [x for x in current['Contents'] if x['Key'] == prefix+".s3mirror-MANIFEST"]
                 #if len(mfi):
                 #    try:
-                #        mf = open(os.path.join(dir, ".s3mirror-MANIFEST"))
+                #        mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
                 #        mfdata = mf.read()
                 #        mf.close()
                 #        hash = md5.new(mfdata).hexdigest()
@@ -186,7 +187,7 @@ def main():
         for name in files:
             if name == ".s3mirror-MANIFEST":
                 continue
-            fn = os.path.join(dir, name)
+            fn = os.path.join(base, name)
             t = os.stat(fn)[stat.ST_MTIME]
             h = md5file(fn).hexdigest()
             if name not in manifest or h != manifest[name]['h']:
@@ -209,7 +210,7 @@ def main():
                 s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
             else:
                 s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
-            mf = open(os.path.join(dir, ".s3mirror-MANIFEST"), "w")
+            mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
             mf.write(mfdata)
             mf.close()
 

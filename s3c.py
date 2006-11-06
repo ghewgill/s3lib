@@ -14,6 +14,7 @@ class Config:
         self.Logfile = None
 
 Config = Config()
+s3 = None
 
 def readConfig():
     fn = ".s3crc"
@@ -66,7 +67,7 @@ def print_columns(align, data):
                 s += str(d[c])
         print s
 
-def create(argv):
+def do_create(argv):
     for a in range(len(argv)):
         name = argv[a]
         if name[0] == "/":
@@ -77,7 +78,7 @@ def create(argv):
         r = s3.create(name)
         print "s3c: Created", r.getheader("Location")
 
-def list(argv):
+def do_list(argv):
     if len(argv) == 0:
         argv = ["/"]
     for a in range(len(argv)):
@@ -99,7 +100,7 @@ def list(argv):
         if len(argv) > 1:
             print
 
-def ls(argv):
+def do_ls(argv):
     if len(argv) == 0:
         argv = ["/"]
     for a in range(len(argv)):
@@ -163,14 +164,14 @@ def ls(argv):
         if len(argv) > 1:
             print
 
-def get(argv):
+def do_get(argv):
     name = argv[0]
     if name[0] == "/":
         name = name[1:]
     r = s3.get(name)
     shutil.copyfileobj(r, sys.stdout)
 
-def put(argv):
+def do_put(argv):
     name = argv[0]
     if name[0] == "/":
         name = name[1:]
@@ -178,7 +179,7 @@ def put(argv):
     r = s3.put(name, data)
     print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
 
-def delete(argv):
+def do_delete(argv):
     force = False
     for a in range(len(argv)):
         if argv[a] == "-f":
@@ -224,17 +225,17 @@ def main():
         sys.exit(1)
     s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
     if command == "create":
-        create(sys.argv[a:])
+        do_create(sys.argv[a:])
     elif command == "list":
-        list(sys.argv[a:])
+        do_list(sys.argv[a:])
     elif command == "ls":
-        ls(sys.argv[a:])
+        do_ls(sys.argv[a:])
     elif command == "get":
-        get(sys.argv[a:])
+        do_get(sys.argv[a:])
     elif command == "put":
-        put(sys.argv[a:])
+        do_put(sys.argv[a:])
     elif command == "delete":
-        delete(sys.argv[a:])
+        do_delete(sys.argv[a:])
     else:
         print >>sys.stderr, "s3c: Unknown command:", command
 
