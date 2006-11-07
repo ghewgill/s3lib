@@ -4,7 +4,7 @@ from distutils.core import setup
 
 setup(
     name = "s3lib",
-    version = "1.0",
+    version = "0.1",
     description = "Amazon S3 Interface Library",
     author = "Greg Hewgill",
     author_email = "greg@hewgill.com",
