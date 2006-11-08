@@ -18,6 +18,7 @@ class Config:
         self.Access = None
         self.Secret = None
         self.Logfile = None
+        self.Encrypt = None
         self.EncryptNames = False
         self.IgnoreManifest = False
 
@@ -122,12 +123,13 @@ def main():
             elif sys.argv[a] == "-s" or sys.argv[a] == "--secret":
                 a += 1
                 Config.Secret = sys.argv[a]
+            elif sys.argv[a] == "--encrypt":
+                a += 1
+                Config.Encrypt = sys.argv[a]
             elif sys.argv[a] == "--encrypt-names":
                 Config.EncryptNames = True
-                a += 1
             elif sys.argv[a] == "--ignore-manifest":
                 Config.IgnoreManifest = True
-                a += 1
             else:
                 print >>sys.stderr, "s3mirror: Unknown option:", sys.argv[a]
                 sys.exit(1)
@@ -139,7 +141,7 @@ def main():
             else:
                 print >>sys.stderr, "s3mirror: too many arguments"
                 sys.exit(1)
-            a += 1
+        a += 1
     if Config.Access is None or Config.Secret is None:
         print >>sys.stderr, "s3mirror: Need access and secret"
         sys.exit(1)
@@ -194,9 +196,14 @@ def main():
             h = md5file(fn).hexdigest()
             if name not in manifest or h != manifest[name]['h']:
                 print fn
-                f = os.popen("bzip2 <"+fn)
+                if Config.Encrypt:
+                    f = os.popen("bzip2 <"+fn+" | gpg --encrypt -r "+Config.Encrypt)
+                else:
+                    f = os.popen("bzip2 <"+fn)
                 if Config.EncryptNames:
                     sname = dest+"/"+hmac.new(Config.Secret, prefix+name, sha).hexdigest()
+                elif Config.Encrypt is not None:
+                    sname = dest+prefix+name+".bz2.gpg"
                 else:
                     sname = dest+prefix+name+".bz2"
                 r = s3.put(sname, f.read())
