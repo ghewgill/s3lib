@@ -153,8 +153,22 @@ class S3Store:
         # TODO: headers
         sig += name
         headers['Authorization'] = "AWS %s:%s" % (self.access, base64.encodestring(hmac.new(self.secret, sig, sha).digest()).strip())
-        self.server.request(method, name+query, data, headers)
-        r = self.server.getresponse()
+        tries = 0
+        delay = 0.1
+        while True:
+            self.server.request(method, name+query, data, headers)
+            r = self.server.getresponse()
+            if r.status < 300:
+                break
+            e = S3Exception(r)
+            if e.info['Code'] != "InternalError":
+                raise e
+            #print >>sys.stderr, "got InternalError, sleeping", delay
+            time.sleep(delay)
+            delay *= 2
+            tries += 1
+            if tries >= 5:
+                raise e
         if self.logfile is not None:
             line = "%s %d %s %s%s" % (self.access, time.time(), method, name, query)
             if method == "GET":
