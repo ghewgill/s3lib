@@ -197,9 +197,9 @@ def main():
             if name not in manifest or h != manifest[name]['h']:
                 print fn
                 if Config.Encrypt:
-                    f = os.popen("bzip2 <"+fn+" | gpg --encrypt -r "+Config.Encrypt)
+                    f = os.popen("bzip2 <\""+fn+"\" | gpg --encrypt -r "+Config.Encrypt)
                 else:
-                    f = os.popen("bzip2 <"+fn)
+                    f = os.popen("bzip2 <\""+fn+"\"")
                 if Config.EncryptNames:
                     sname = dest+"/"+hmac.new(Config.Secret, prefix+name, sha).hexdigest()
                 elif Config.Encrypt is not None:
@@ -219,9 +219,12 @@ def main():
                 s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
             else:
                 s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
-            mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
-            mf.write(mfdata)
-            mf.close()
+            try:
+                mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
+                mf.write(mfdata)
+                mf.close()
+            except IOError:
+                pass
 
 if __name__ == "__main__":
     main()
