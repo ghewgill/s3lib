@@ -76,7 +76,7 @@ class S3Store:
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
 
     def create(self, bucket):
-        r = self._exec("PUT", "/"+bucket)
+        r = self._exec("PUT", "/"+urllib.quote(bucket))
         if r.status != 200:
             raise S3Exception(r)
         r.read()
@@ -124,14 +124,14 @@ class S3Store:
         return r
 
     def put(self, name, data):
-        r = self._exec("PUT", "/"+name, data)
+        r = self._exec("PUT", "/"+urllib.quote(name), data)
         if r.status != 200:
             raise S3Exception(r)
         r.read()
         return r
 
     def delete(self, name):
-        r = self._exec("DELETE", "/"+name)
+        r = self._exec("DELETE", "/"+urllib.quote(name))
         if r.status != 204:
             raise S3Exception(r)
         r.read()
