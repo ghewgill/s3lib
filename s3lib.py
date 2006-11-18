@@ -175,7 +175,10 @@ class S3Store:
                 r = HTTPResponseLogger(r, self.logfile, line + " %d")
             elif method == "PUT":
                 log = open(self.logfile, "a")
-                print >>log, line, len(data)
+                if data is not None:
+                    print >>log, line, len(data)
+                else:
+                    print >>log, line
                 log.close()
             else:
                 log = open(self.logfile, "a")
