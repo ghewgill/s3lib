@@ -156,7 +156,27 @@ class S3Store:
         tries = 0
         delay = 0.1
         while True:
-            self.server.request(method, name+query, data, headers)
+            self.server.putrequest(method, name+query)
+            if data:
+                if isinstance(data, str):
+                    datasize = len(data)
+                else:
+                    data.seek(0, 2)
+                    datasize = data.tell()
+                    data.seek(0)
+                self.server.putheader('Content-Length', str(datasize))
+            for hdr, value in headers.iteritems():
+                self.server.putheader(hdr, value)
+            self.server.endheaders()
+            if data:
+                if isinstance(data, str):
+                    self.server.send(data)
+                else:
+                    while True:
+                        buf = data.read(16*1024)
+                        if not buf:
+                            break
+                        self.server.send(buf)
             r = self.server.getresponse()
             if r.status < 300:
                 break
@@ -176,7 +196,7 @@ class S3Store:
             elif method == "PUT":
                 log = open(self.logfile, "a")
                 if data is not None:
-                    print >>log, line, len(data)
+                    print >>log, line, datasize
                 else:
                     print >>log, line
                 log.close()
