@@ -103,36 +103,59 @@ def do_list(argv):
             print
 
 def do_ls(argv):
+    # -r for recursive (list all subdirs flat)
+    # -s for dir sizes (summary of dir sizes)
+    # -a for acls
+    # -h for metric size units
     if len(argv) == 0:
         argv = ["/"]
-    for a in range(len(argv)):
-        if len(argv) > 1:
-            print "%s:" % argv[a]
-        name = argv[a]
+    recursive = False
+    subdirs = False
+    args = []
+    for a in argv:
+        if a == "-r":
+            recursive = True
+            continue
+        if a == "-s":
+            subdirs = True
+            continue
+        args += [a]
+    for a in args:
+        if len(args) > 1:
+            print "%s:" % a
+        name = a
         if name[0] == "/":
             name = name[1:]
         m = re.match(r"(.*?)/(.+)", name)
         prefix = ""
+        query = ""
         if m:
             bucket = m.group(1)
             prefix = m.group(2)
             if prefix[len(prefix)-1] != "/":
                 prefix += "/"
-            s = s3.list(bucket, "?prefix="+urllib.quote(prefix)+"&delimiter=/")
+            query = "?prefix="+urllib.quote(prefix)
         else:
             bucket = name
-            s = s3.list(bucket, "?delimiter=/")
+        if not recursive:
+            if len(query) > 0:
+                query += "&delimiter=/"
+            else:
+                query += "?delimiter=/"
+        s = s3.list(bucket, query)
         if s['_tag'] == "ListAllMyBucketsResult":
             items = []
             for b in s['Buckets']:
-                objects = s3.list(b['Name'])['Contents']
+                objects = []
+                if subdirs:
+                    objects = s3.list(b['Name'])['Contents']
                 items += [(
                     'drw-------',
                     1,
                     s['Owner']['DisplayName'],
                     s['Owner']['DisplayName'],
                     sum([int(x['Size']) for x in objects]),
-                    humantime(max([s3lib.parsetime(x['LastModified']) for x in objects])),
+                    humantime(reduce(max, [s3lib.parsetime(x['LastModified']) for x in objects], 0)),
                     b['Name']
                 )]
             items.sort(lambda x, y: cmp(x[6], y[6]))
@@ -142,14 +165,16 @@ def do_ls(argv):
             if len(s['CommonPrefixes']) > 0:
                 bucketowner = s3.list("")['Owner']['DisplayName']
                 for c in s['CommonPrefixes']:
-                    objects = s3.list(bucket, "?prefix="+urllib.quote(c['Prefix']))['Contents']
+                    objects = []
+                    if subdirs:
+                        objects = s3.list(bucket, "?prefix="+urllib.quote(c['Prefix']))['Contents']
                     items += [(
                         'drw-------',
                         1,
                         bucketowner,
                         bucketowner,
                         sum([int(x['Size']) for x in objects]),
-                        humantime(max([s3lib.parsetime(x['LastModified']) for x in objects])),
+                        humantime(reduce(max, [s3lib.parsetime(x['LastModified']) for x in objects], 0)),
                         c['Prefix'][len(prefix):]
                     )]
             items += [(
@@ -163,7 +188,7 @@ def do_ls(argv):
             ) for c in s['Contents']]
             items.sort(lambda x, y: cmp(x[6], y[6]))
             print_columns((False,True,False,False,True,True,False), items)
-        if len(argv) > 1:
+        if len(args) > 1:
             print
 
 def do_get(argv):
@@ -174,12 +199,56 @@ def do_get(argv):
     shutil.copyfileobj(r, sys.stdout)
 
 def do_put(argv):
-    name = argv[0]
+    neveroverwrite = False
+    filename = None
+    name = None
+    for a in range(len(argv)):
+        if argv[a] == "-n":
+            neveroverwrite = True
+            continue
+        if name is None:
+            name = argv[a]
+        elif filename is None:
+            filename = name
+            name = argv[a]
+        else:
+            print >>sys.stderr, "s3c: Too many parameters for PUT"
+            sys.exit(1)
+    if name is None:
+        print >>sys.stderr, "s3c: Name required on PUT"
+        sys.exit(1)
     if name[0] == "/":
         name = name[1:]
-    data = sys.stdin.read()
-    r = s3.put(name, data)
-    print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
+    if "/" not in name:
+        print >>sys.stderr, "s3c: Name for PUT must contain /"
+        sys.exit(1)
+    if neveroverwrite:
+        m = re.match(r"(.*?)/(.+)", name)
+        if m is None:
+            print >>sys.stderr, "s3c: Name for PUT must contain /"
+            sys.exit(1)
+        bucket = m.group(1)
+        prefix = m.group(2)
+        try:
+            # TODO: limit to 1 response?
+            r = s3.list(bucket, "?prefix="+urllib.quote(prefix))
+            if prefix in [x['Key'] for x in r['Contents']]:
+                print >>sys.stderr, "s3c: file already exists and -n specified:", name
+                sys.exit(1)
+        except s3lib.S3Exception, e:
+            if e.info['Code'] != "NoSuchKey":
+                raise e
+    if filename is not None:
+        data = file(filename, "rb")
+        r = s3.put(name, data)
+        data.seek(0, 2)
+        print "s3c: Put %s as %s (%d bytes, md5 %s)" % (filename, name, data.tell(), r.getheader("ETag"))
+        data.close()
+    else:
+        # TODO: create temporary file if it's too big to hold in memory
+        data = sys.stdin.read()
+        r = s3.put(name, data)
+        print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
 
 def do_delete(argv):
     force = False
@@ -225,21 +294,26 @@ def main():
     if Config.Access is None or Config.Secret is None:
         print >>sys.stderr, "s3c: Need access and secret"
         sys.exit(1)
-    s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
-    if command == "create":
-        do_create(sys.argv[a:])
-    elif command == "list":
-        do_list(sys.argv[a:])
-    elif command == "ls":
-        do_ls(sys.argv[a:])
-    elif command == "get":
-        do_get(sys.argv[a:])
-    elif command == "put":
-        do_put(sys.argv[a:])
-    elif command == "delete":
-        do_delete(sys.argv[a:])
-    else:
-        print >>sys.stderr, "s3c: Unknown command:", command
+    try:
+        s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
+        if command == "create":
+            do_create(sys.argv[a:])
+        elif command == "list":
+            do_list(sys.argv[a:])
+        elif command == "ls":
+            do_ls(sys.argv[a:])
+        elif command == "get":
+            do_get(sys.argv[a:])
+        elif command == "put":
+            do_put(sys.argv[a:])
+        elif command == "delete":
+            do_delete(sys.argv[a:])
+        else:
+            print >>sys.stderr, "s3c: Unknown command:", command
+            sys.exit(1)
+    except s3lib.S3Exception, e:
+        print >>sys.stderr, "s3c: Error %s: %s" % (e.info['Code'], e.info['Message'])
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
