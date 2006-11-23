@@ -9,52 +9,25 @@ import urllib
 
 import s3lib
 
-class Config:
-    def __init__(self):
-        self.Access = None
-        self.Secret = None
-        self.Logfile = None
-
-Config = Config()
 s3 = None
-
-def readConfig():
-    fn = ".s3crc"
-    if 'S3CRC' in os.environ:
-        fn = os.environ['S3CRC']
-    elif 'HOME' in os.environ:
-        fn = os.environ['HOME']+os.path.sep+fn
-    elif 'HOMEDRIVE' in os.environ and 'HOMEPATH' in os.environ:
-        fn = os.environ['HOMEDRIVE']+os.environ['HOMEPATH']+os.path.sep+fn
-    f = None
-    try:
-        f = open(fn)
-        for s in f:
-            m = re.match(r"(\w+)\s+(\S+)", s)
-            if not m:
-                continue
-            if m.group(1) == "access":
-                Config.Access = m.group(2)
-            elif m.group(1) == "secret":
-                Config.Secret = m.group(2)
-            elif m.group(1) == "logfile":
-                Config.Logfile = m.group(2)
-            else:
-                continue
-        f.close()
-    except:
-        if f is not None:
-            f.close()
-    if 'S3ACCESS' in os.environ:
-        Config.Access = os.environ['S3ACCESS']
-    if 'S3SECRET' in os.environ:
-        Config.Secret = os.environ['S3SECRET']
 
 def humantime(t):
     if time.time() - t < 180*86400:
         return time.strftime("%b %d %H:%M", time.localtime(t))
     else:
         return time.strftime("%b %d  %Y", time.localtime(t))
+
+suffixes = ['B','K','M','G','T','P','E','Z','Y']
+def metricsuffix(x):
+    e = 0
+    f = 1
+    while len(str(int(x/f))) > 3 and e+1 < len(suffixes):
+        e += 1
+        f *= 1024
+    if len(str(int(x/f))) == 1 and f > 1:
+        return "%.1f%s" % (1.0*x/f, suffixes[e])
+    else:
+        return "%d%s" % (x/f, suffixes[e])
 
 def print_columns(align, data):
     maxwidth = [reduce(max, [len(str(x[c])) for x in data], 0) for c in range(len(align))]
@@ -107,12 +80,14 @@ def do_ls(argv):
     # -s for dir sizes (summary of dir sizes)
     # -a for acls
     # -h for metric size units
-    if len(argv) == 0:
-        argv = ["/"]
     recursive = False
     subdirs = False
+    metric = False
     args = []
     for a in argv:
+        if a == "-h":
+            metric = True
+            continue
         if a == "-r":
             recursive = True
             continue
@@ -120,6 +95,12 @@ def do_ls(argv):
             subdirs = True
             continue
         args += [a]
+    if metric:
+        sizeconvert = lambda x: metricsuffix(x)
+    else:
+        sizeconvert = lambda x: x
+    if len(args) == 0:
+        args = ["/"]
     for a in args:
         if len(args) > 1:
             print "%s:" % a
@@ -154,7 +135,7 @@ def do_ls(argv):
                     1,
                     s['Owner']['DisplayName'],
                     s['Owner']['DisplayName'],
-                    sum([int(x['Size']) for x in objects]),
+                    sizeconvert(sum([int(x['Size']) for x in objects])),
                     humantime(reduce(max, [s3lib.parsetime(x['LastModified']) for x in objects], 0)),
                     b['Name']
                 )]
@@ -173,7 +154,7 @@ def do_ls(argv):
                         1,
                         bucketowner,
                         bucketowner,
-                        sum([int(x['Size']) for x in objects]),
+                        sizeconvert(sum([int(x['Size']) for x in objects])),
                         humantime(reduce(max, [s3lib.parsetime(x['LastModified']) for x in objects], 0)),
                         c['Prefix'][len(prefix):]
                     )]
@@ -182,7 +163,7 @@ def do_ls(argv):
                 1,
                 c['Owner']['DisplayName'],
                 c['Owner']['DisplayName'],
-                c['Size'],
+                sizeconvert(int(c['Size'])),
                 humantime(s3lib.parsetime(c['LastModified'])),
                 c['Key'][len(prefix):]
             ) for c in s['Contents']]
@@ -193,10 +174,20 @@ def do_ls(argv):
 
 def do_get(argv):
     name = argv[0]
+    filename = None
     if name[0] == "/":
         name = name[1:]
+    if len(argv) > 1:
+        filename = argv[1]
+    outf = None
+    if filename is not None:
+        outf = file(filename, "wb")
     r = s3.get(name)
-    shutil.copyfileobj(r, sys.stdout)
+    if outf is None:
+        shutil.copyfileobj(r, sys.stdout)
+    else:
+        shutil.copyfileobj(r, outf)
+        outf.close()
 
 def do_put(argv):
     neveroverwrite = False
@@ -273,17 +264,18 @@ def do_delete(argv):
 
 def main():
     global s3
-    readConfig()
+    access = None
+    secret = None
     a = 1
     command = None
     while a < len(sys.argv):
         if sys.argv[a][0] == "-":
             if sys.argv[a] == "-a" or sys.argv[a] == "--access":
                 a += 1
-                Config.Access = sys.argv[a]
+                access = sys.argv[a]
             elif sys.argv[a] == "-s" or sys.argv[a] == "--secret":
                 a += 1
-                Config.Secret = sys.argv[a]
+                secret = sys.argv[a]
             else:
                 print >>sys.stderr, "s3c: Unknown option:", sys.argv[a]
                 sys.exit(1)
@@ -291,11 +283,8 @@ def main():
             command = sys.argv[a]
             a += 1
             break
-    if Config.Access is None or Config.Secret is None:
-        print >>sys.stderr, "s3c: Need access and secret"
-        sys.exit(1)
     try:
-        s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
+        s3 = s3lib.S3Store(access, secret)
         if command == "create":
             do_create(sys.argv[a:])
         elif command == "list":
