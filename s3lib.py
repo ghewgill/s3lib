@@ -1,14 +1,54 @@
+#!/usr/bin/env python
+
 import base64
 import calendar
 import hmac
 import httplib
+import os
 import re
 import sha
 import time
 import urllib
 import xml.dom.minidom
 
+def readConfig():
+    access = None
+    secret = None
+    logfile = None
+    fn = ".s3crc"
+    if 'S3CRC' in os.environ:
+        fn = os.environ['S3CRC']
+    elif 'HOME' in os.environ:
+        fn = os.environ['HOME']+os.path.sep+fn
+    elif 'HOMEDRIVE' in os.environ and 'HOMEPATH' in os.environ:
+        fn = os.environ['HOMEDRIVE']+os.environ['HOMEPATH']+os.path.sep+fn
+    f = None
+    try:
+        f = open(fn)
+        for s in f:
+            m = re.match(r"(\w+)\s+(\S+)", s)
+            if not m:
+                continue
+            if m.group(1) == "access":
+                access = m.group(2)
+            elif m.group(1) == "secret":
+                secret = m.group(2)
+            elif m.group(1) == "logfile":
+                logfile = m.group(2)
+            else:
+                continue
+        f.close()
+    except:
+        if f is not None:
+            f.close()
+    if 'S3ACCESS' in os.environ:
+        access = os.environ['S3ACCESS']
+    if 'S3SECRET' in os.environ:
+        secret = os.environ['S3SECRET']
+    return access, secret, logfile
+
 def makestruct(e, arrays = {}):
+    """Construct a Python data structure from an XML fragment."""
     r = {}
     r['_tag'] = e.tagName
     for a in arrays:
@@ -27,10 +67,13 @@ def makestruct(e, arrays = {}):
     return r
 
 def parsetime(ts):
+    """Convert an ISO 8601 date string into a time value."""
     m = re.match(r"(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)(.(\d+))?Z$", ts)
     return calendar.timegm([int(m.group(i)) for i in range(1, 7)])
 
 class S3Exception(Exception):
+    """Encapsulate an S3 exception."""
+
     def __init__(self, r):
         Exception.__init__(self)
         self.status = r.status
@@ -44,6 +87,8 @@ class S3Exception(Exception):
             return "%s: %s" % (self.info['Code'], self.info['Message'])
 
 class HTTPResponseLogger:
+    """Provide logging facilities for an HTTP response object."""
+
     def __init__(self, r, logfile, format):
         self.r = r
         self.logfile = logfile
@@ -69,13 +114,24 @@ class HTTPResponseLogger:
         return self.r.__dict__[name]
 
 class S3Store:
-    def __init__(self, access, secret, logfile):
+    """Provide access to Amazon S3."""
+
+    def __init__(self, access = None, secret = None, logfile = None):
+        """Initialise an instance."""
         self.access = access
         self.secret = secret
         self.logfile = logfile
+        a, s, l = readConfig()
+        if self.access is None:
+            self.access = a
+        if self.secret is None:
+            self.secret = s
+        if self.logfile is None:
+            self.logfile = l
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
 
     def create(self, bucket):
+        """Create a new bucket."""
         r = self._exec("PUT", "/"+urllib.quote(bucket))
         if r.status != 200:
             raise S3Exception(r)
@@ -83,6 +139,7 @@ class S3Store:
         return r
 
     def list(self, bucket, query = ""):
+        """List contents of a bucket."""
         ret = None
         marker = None
         while True:
@@ -107,7 +164,7 @@ class S3Store:
                 else:
                     ret['Contents'] += s['Contents']
                     ret['CommonPrefixes'] += s['CommonPrefixes']
-                if s['IsTruncated'] == "false":
+                if s['IsTruncated'] != "true":
                     break
                 if 'NextMarker' in s:
                     marker = s['NextMarker']
@@ -118,12 +175,14 @@ class S3Store:
         return ret
 
     def get(self, name, query = ""):
+        """Get an object from a bucket."""
         r = self._exec("GET", "/"+urllib.quote(name), query = query)
         if r.status != 200:
             raise S3Exception(r)
         return r
 
     def put(self, name, data):
+        """Put an object into a bucket."""
         r = self._exec("PUT", "/"+urllib.quote(name), data)
         if r.status != 200:
             raise S3Exception(r)
@@ -131,6 +190,7 @@ class S3Store:
         return r
 
     def delete(self, name):
+        """Delete an object from a bucket."""
         r = self._exec("DELETE", "/"+urllib.quote(name))
         if r.status != 204:
             raise S3Exception(r)
