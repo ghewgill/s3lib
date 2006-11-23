@@ -15,47 +15,12 @@ from pprint import pprint
 
 class Config:
     def __init__(self):
-        self.Access = None
-        self.Secret = None
-        self.Logfile = None
         self.Encrypt = None
         self.EncryptNames = False
         self.IgnoreManifest = False
 
 Config = Config()
 s3 = None
-
-def readConfig():
-    fn = ".s3crc"
-    if 'S3CRC' in os.environ:
-        fn = os.environ['S3CRC']
-    elif 'HOME' in os.environ:
-        fn = os.environ['HOME']+os.path.sep+fn
-    elif 'HOMEDRIVE' in os.environ and 'HOMEPATH' in os.environ:
-        fn = os.environ['HOMEDRIVE']+os.environ['HOMEPATH']+os.path.sep+fn
-    f = None
-    try:
-        f = open(fn)
-        for s in f:
-            m = re.match(r"(\w+)\s+(\S+)", s)
-            if not m:
-                continue
-            if m.group(1) == "access":
-                Config.Access = m.group(2)
-            elif m.group(1) == "secret":
-                Config.Secret = m.group(2)
-            elif m.group(1) == "logfile":
-                Config.Logfile = m.group(2)
-            else:
-                continue
-        f.close()
-    except:
-        if f is not None:
-            f.close()
-    if 'S3ACCESS' in os.environ:
-        Config.Access = os.environ['S3ACCESS']
-    if 'S3SECRET' in os.environ:
-        Config.Secret = os.environ['S3SECRET']
 
 def xor(x, y):
     assert len(x) == len(y)
@@ -111,7 +76,8 @@ def md5file(fn):
 
 def main():
     global s3
-    readConfig()
+    access = None
+    secret = None
     a = 1
     source = None
     dest = None
@@ -119,10 +85,10 @@ def main():
         if sys.argv[a][0] == "-":
             if sys.argv[a] == "-a" or sys.argv[a] == "--access":
                 a += 1
-                Config.Access = sys.argv[a]
+                access = sys.argv[a]
             elif sys.argv[a] == "-s" or sys.argv[a] == "--secret":
                 a += 1
-                Config.Secret = sys.argv[a]
+                secret = sys.argv[a]
             elif sys.argv[a] == "--encrypt":
                 a += 1
                 Config.Encrypt = sys.argv[a]
@@ -142,10 +108,7 @@ def main():
                 print >>sys.stderr, "s3mirror: too many arguments"
                 sys.exit(1)
         a += 1
-    if Config.Access is None or Config.Secret is None:
-        print >>sys.stderr, "s3mirror: Need access and secret"
-        sys.exit(1)
-    s3 = s3lib.S3Store(Config.Access, Config.Secret, Config.Logfile)
+    s3 = s3lib.S3Store(access, secret)
     for base, dirs, files in os.walk(source):
         assert base.startswith(source)
         prefix = base[len(source):]
