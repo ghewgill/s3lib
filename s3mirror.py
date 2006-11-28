@@ -6,6 +6,7 @@ import md5
 import os
 import re
 import sha
+import shutil
 import stat
 import sys
 
@@ -169,7 +170,17 @@ def main():
                     sname = dest+prefix+name+".bz2.gpg"
                 else:
                     sname = dest+prefix+name+".bz2"
-                r = s3.put(sname, f.read())
+                MAX_SIZE = 1000000
+                data = f.read(MAX_SIZE)
+                tf = None
+                if len(data) >= MAX_SIZE:
+                    tf = os.tmpfile()
+                    tf.write(data)
+                    shutil.copyfileobj(f, tf)
+                    data = tf
+                r = s3.put(sname, data)
+                if tf is not None:
+                    tf.close()
                 manifest[name] = {
                     't': t,
                     'h': h,

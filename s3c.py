@@ -236,10 +236,21 @@ def do_put(argv):
         print "s3c: Put %s as %s (%d bytes, md5 %s)" % (filename, name, data.tell(), r.getheader("ETag"))
         data.close()
     else:
-        # TODO: create temporary file if it's too big to hold in memory
-        data = sys.stdin.read()
+        MAX_SIZE = 1000000
+        data = sys.stdin.read(MAX_SIZE)
+        # create temporary file if it's too big to hold in memory
+        tf = None
+        if len(data) >= MAX_SIZE:
+            tf = os.tmpfile()
+            tf.write(data)
+            shutil.copyfileobj(sys.stdin, tf)
+            data = tf
         r = s3.put(name, data)
-        print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
+        if tf is not None:
+            print "s3c: Put %s (%d bytes, md5 %s)" % (name, tf.tell(), r.getheader("ETag"))
+            tf.close()
+        else:
+            print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
 
 def do_delete(argv):
     force = False
