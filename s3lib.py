@@ -198,6 +198,17 @@ class S3Store:
         return r
 
     def _exec(self, method, name, data = None, headers = None, query = ""):
+
+        # It is necessary to force a disconnect and reconnect to avoid
+        # problems with keepalive HTTP connections. If the server has timed
+        # out we won't know that, and will get IOError exceptions when
+        # we try to send data.
+        #
+        # This should be improved by handling IOError exceptions in the
+        # retry logic.
+        self.server.close()
+        self.server.connect()
+
         if headers is None:
             headers = {}
         if not 'Date' in headers:
