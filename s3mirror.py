@@ -75,13 +75,136 @@ def md5file(fn):
         h.update(buf)
     return h
 
+def scanfiles(source, dest):
+    todo = []
+    for base, dirs, files in os.walk(source):
+        tododir = {'dir': base, 'files': []}
+        assert base.startswith(source)
+        prefix = base[len(source):]
+        if not prefix.startswith("/"):
+            prefix = "/"+prefix
+        if not prefix.endswith("/"):
+            prefix += "/"
+        tododir['prefix'] = prefix
+        manifest = None
+        if not Config.IgnoreManifest:
+            try:
+                mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
+                mfdata = mf.read()
+                mf.close()
+                manifest = cPickle.loads(mfdata)
+            except IOError:
+                pass
+            if manifest is None:
+                try:
+                    mfdata = s3.get(dest+prefix+".s3mirror-MANIFEST").read()
+                    print "s3mirror: Fetching %s" % (dest+prefix+".s3mirror-MANIFEST")
+                    if Config.EncryptNames:
+                        mfdata = karn_decrypt(mfdata, Config.Secret)
+                    manifest = cPickle.loads(mfdata)
+                except s3lib.S3Exception:
+                    pass
+                #current = s3.list(dest, query = "?prefix="+prefix)
+                #mfi = [x for x in current['Contents'] if x['Key'] == prefix+".s3mirror-MANIFEST"]
+                #if len(mfi):
+                #    try:
+                #        mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
+                #        mfdata = mf.read()
+                #        mf.close()
+                #        hash = md5.new(mfdata).hexdigest()
+                #        if hash in mfi[0]['ETag']:
+                #            manifest = cPickle.loads(mfdata)
+                #        else:
+                #            manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
+                #    except IOError:
+                #        manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
+        if manifest is None:
+            manifest = {}
+        tododir['manifest'] = manifest
+        changed = False
+        for name in files:
+            if name == ".s3mirror-MANIFEST":
+                continue
+            fn = os.path.join(base, name)
+            try:
+                st = os.stat(fn)
+                t = st[stat.ST_MTIME]
+                h = md5file(fn).hexdigest()
+            except OSError:
+                print >>sys.stderr, "s3mirror: File vanished:", fn
+                continue
+            if name not in manifest or h != manifest[name]['h']:
+                tododir['files'].append({
+                    'name': name,
+                    'size': st[stat.ST_SIZE],
+                    't': t,
+                    'h': h,
+                })
+        if len(tododir['files']) > 0:
+            todo.append(tododir)
+    return todo
+
+def sendfiles(todo, dest):
+    total = sum([sum([f['size'] for f in d['files']]) for d in todo])
+    done = 0
+    for dir in todo:
+        base = dir['dir']
+        prefix = dir['prefix']
+        manifest = dir['manifest']
+        for finfo in dir['files']:
+            name = finfo['name']
+            t = finfo['t']
+            h = finfo['h']
+            fn = os.path.join(base, name)
+            print fn
+            if Config.Encrypt:
+                f = os.popen("bzip2 <\""+fn+"\" | gpg --encrypt -r "+Config.Encrypt)
+            else:
+                f = os.popen("bzip2 <\""+fn+"\"")
+            if Config.EncryptNames:
+                sname = dest+"/"+hmac.new(Config.Secret, prefix+name, sha).hexdigest()
+            elif Config.Encrypt is not None:
+                sname = dest+prefix+name+".bz2.gpg"
+            else:
+                sname = dest+prefix+name+".bz2"
+            MAX_SIZE = 1000000
+            data = f.read(MAX_SIZE)
+            tf = None
+            if len(data) >= MAX_SIZE:
+                tf = os.tmpfile()
+                tf.write(data)
+                shutil.copyfileobj(f, tf)
+                data = tf
+            r = s3.put(sname, data)
+            if tf is not None:
+                tf.close()
+            manifest[name] = {
+                't': t,
+                'h': h,
+                'm': r.getheader("ETag")
+            }
+            mfdata = cPickle.dumps(manifest)
+            try:
+                mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
+                mf.write(mfdata)
+                mf.close()
+            except IOError:
+                pass
+            done += finfo['size']
+            print done, '/', total
+        mfdata = cPickle.dumps(manifest)
+        if Config.EncryptNames:
+            s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
+        else:
+            s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
+
 def main():
     global s3
     access = None
     secret = None
-    a = 1
     source = None
     dest = None
+    a = 1
     while a < len(sys.argv):
         if sys.argv[a][0] == "-":
             if sys.argv[a] == "-a" or sys.argv[a] == "--access":
@@ -110,95 +233,8 @@ def main():
                 sys.exit(1)
         a += 1
     s3 = s3lib.S3Store(access, secret)
-    for base, dirs, files in os.walk(source):
-        assert base.startswith(source)
-        prefix = base[len(source):]
-        if not prefix.startswith("/"):
-            prefix = "/"+prefix
-        if not prefix.endswith("/"):
-            prefix += "/"
-        manifest = None
-        if not Config.IgnoreManifest:
-            try:
-                mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
-                mfdata = mf.read()
-                mf.close()
-                manifest = cPickle.loads(mfdata)
-            except IOError:
-                pass
-            if manifest is None:
-                try:
-                    print "s3mirror: Fetching %s" % (dest+prefix+".s3mirror-MANIFEST")
-                    mfdata = s3.get(dest+prefix+".s3mirror-MANIFEST").read()
-                    if Config.EncryptNames:
-                        mfdata = karn_decrypt(mfdata, Config.Secret)
-                    manifest = cPickle.loads(mfdata)
-                except s3lib.S3Exception:
-                    pass
-                #current = s3.list(dest, query = "?prefix="+prefix)
-                #mfi = [x for x in current['Contents'] if x['Key'] == prefix+".s3mirror-MANIFEST"]
-                #if len(mfi):
-                #    try:
-                #        mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
-                #        mfdata = mf.read()
-                #        mf.close()
-                #        hash = md5.new(mfdata).hexdigest()
-                #        if hash in mfi[0]['ETag']:
-                #            manifest = cPickle.loads(mfdata)
-                #        else:
-                #            manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
-                #    except IOError:
-                #        manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
-        if manifest is None:
-            manifest = {}
-        changed = False
-        for name in files:
-            if name == ".s3mirror-MANIFEST":
-                continue
-            fn = os.path.join(base, name)
-            t = os.stat(fn)[stat.ST_MTIME]
-            h = md5file(fn).hexdigest()
-            if name not in manifest or h != manifest[name]['h']:
-                print fn
-                if Config.Encrypt:
-                    f = os.popen("bzip2 <\""+fn+"\" | gpg --encrypt -r "+Config.Encrypt)
-                else:
-                    f = os.popen("bzip2 <\""+fn+"\"")
-                if Config.EncryptNames:
-                    sname = dest+"/"+hmac.new(Config.Secret, prefix+name, sha).hexdigest()
-                elif Config.Encrypt is not None:
-                    sname = dest+prefix+name+".bz2.gpg"
-                else:
-                    sname = dest+prefix+name+".bz2"
-                MAX_SIZE = 1000000
-                data = f.read(MAX_SIZE)
-                tf = None
-                if len(data) >= MAX_SIZE:
-                    tf = os.tmpfile()
-                    tf.write(data)
-                    shutil.copyfileobj(f, tf)
-                    data = tf
-                r = s3.put(sname, data)
-                if tf is not None:
-                    tf.close()
-                manifest[name] = {
-                    't': t,
-                    'h': h,
-                    'm': r.getheader("ETag")
-                }
-                changed = True
-        if changed:
-            mfdata = cPickle.dumps(manifest)
-            if Config.EncryptNames:
-                s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
-            else:
-                s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
-            try:
-                mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
-                mf.write(mfdata)
-                mf.close()
-            except IOError:
-                pass
+    todo = scanfiles(source, dest)
+    sendfiles(todo, dest)
 
 if __name__ == "__main__":
     main()
