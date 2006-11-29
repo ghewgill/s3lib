@@ -129,8 +129,10 @@ def scanfiles(source, dest):
             try:
                 st = os.stat(fn)
                 t = st[stat.ST_MTIME]
+                if not stat.S_ISREG(st.st_mode):
+                    continue
                 h = md5file(fn).hexdigest()
-            except OSError:
+            except (IOError, OSError):
                 print >>sys.stderr, "s3mirror: File vanished:", fn
                 continue
             if name not in manifest or h != manifest[name]['h']:
