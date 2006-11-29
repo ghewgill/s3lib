@@ -67,7 +67,7 @@ def karn_decrypt(s, k):
 
 def md5file(fn):
     h = md5.new()
-    f = open(fn)
+    f = open(fn, "rb")
     while True:
         buf = f.read(16384)
         if not buf:
