@@ -73,6 +73,7 @@ def md5file(fn):
         if not buf:
             break
         h.update(buf)
+    f.close()
     return h
 
 def scanfiles(source, dest):
