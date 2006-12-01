@@ -229,12 +229,15 @@ def do_put(argv):
         except s3lib.S3Exception, e:
             if e.info['Code'] != "NoSuchKey":
                 raise e
+    start = time.time()
+    putas = ""
     if filename is not None:
         data = file(filename, "rb")
         r = s3.put(name, data)
         data.seek(0, 2)
-        print "s3c: Put %s as %s (%d bytes, md5 %s)" % (filename, name, data.tell(), r.getheader("ETag"))
+        total = data.tell()
         data.close()
+        putas = "%s as " % filename
     else:
         MAX_SIZE = 1000000
         data = sys.stdin.read(MAX_SIZE)
@@ -247,10 +250,14 @@ def do_put(argv):
             data = tf
         r = s3.put(name, data)
         if tf is not None:
-            print "s3c: Put %s (%d bytes, md5 %s)" % (name, tf.tell(), r.getheader("ETag"))
+            total = tf.tell()
             tf.close()
         else:
-            print "s3c: Put %s (%d bytes, md5 %s)" % (name, len(data), r.getheader("ETag"))
+            total = len(data)
+    end = time.time()
+    if end == start:
+        end += 1
+    print "s3c: Put %s%s (%d bytes, %d bytes/sec, md5 %s)" % (putas, name, total, total/(end-start), r.getheader("ETag"))
 
 def do_delete(argv):
     force = False
