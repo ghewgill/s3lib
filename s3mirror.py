@@ -23,6 +23,9 @@ class Config:
 Config = Config()
 s3 = None
 
+def shellquote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
 def xor(x, y):
     assert len(x) == len(y)
     r = ""
@@ -101,24 +104,10 @@ def scanfiles(source, dest):
                     mfdata = s3.get(dest+prefix+".s3mirror-MANIFEST").read()
                     print "s3mirror: Fetching %s" % (dest+prefix+".s3mirror-MANIFEST")
                     if Config.EncryptNames:
-                        mfdata = karn_decrypt(mfdata, Config.Secret)
+                        mfdata = karn_decrypt(mfdata, s3.secret)
                     manifest = cPickle.loads(mfdata)
                 except s3lib.S3Exception:
                     pass
-                #current = s3.list(dest, query = "?prefix="+prefix)
-                #mfi = [x for x in current['Contents'] if x['Key'] == prefix+".s3mirror-MANIFEST"]
-                #if len(mfi):
-                #    try:
-                #        mf = open(os.path.join(base, ".s3mirror-MANIFEST"))
-                #        mfdata = mf.read()
-                #        mf.close()
-                #        hash = md5.new(mfdata).hexdigest()
-                #        if hash in mfi[0]['ETag']:
-                #            manifest = cPickle.loads(mfdata)
-                #        else:
-                #            manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
-                #    except IOError:
-                #        manifest = cPickle.loads(s3.get(dest+prefix+".s3mirror-MANIFEST").read())
         if manifest is None:
             manifest = {}
         tododir['manifest'] = manifest
@@ -134,7 +123,7 @@ def scanfiles(source, dest):
                     continue
                 h = md5file(fn).hexdigest()
             except (IOError, OSError):
-                print >>sys.stderr, "s3mirror: File vanished:", fn
+                print >>sys.stderr, "s3mirror: Unable to read:", fn
                 continue
             if name not in manifest or h != manifest[name]['h']:
                 tododir['files'].append({
@@ -161,11 +150,11 @@ def sendfiles(todo, dest):
             fn = os.path.join(base, name)
             print fn
             if Config.Encrypt:
-                f = os.popen("bzip2 <\""+fn+"\" | gpg --encrypt -r "+Config.Encrypt)
+                f = os.popen("bzip2 <"+shellquote(fn)+" | gpg --encrypt -r "+Config.Encrypt)
             else:
-                f = os.popen("bzip2 <\""+fn+"\"")
+                f = os.popen("bzip2 <"+shellquote(fn))
             if Config.EncryptNames:
-                sname = dest+"/"+hmac.new(Config.Secret, prefix+name, sha).hexdigest()
+                sname = dest+"/"+hmac.new(s3.secret, prefix+name, sha).hexdigest()
             elif Config.Encrypt is not None:
                 sname = dest+prefix+name+".bz2.gpg"
             else:
@@ -197,7 +186,7 @@ def sendfiles(todo, dest):
             print done, '/', total
         mfdata = cPickle.dumps(manifest)
         if Config.EncryptNames:
-            s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, Config.Secret))
+            s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, s3.secret))
         else:
             s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
 
@@ -231,6 +220,10 @@ def main():
                 source = sys.argv[a]
             elif dest is None:
                 dest = sys.argv[a]
+                if dest.startswith("/"):
+                    dest = dest[1:]
+                if dest.endswith("/"):
+                    dest = dest[:len(dest)-1]
             else:
                 print >>sys.stderr, "s3mirror: too many arguments"
                 sys.exit(1)
