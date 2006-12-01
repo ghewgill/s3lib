@@ -19,6 +19,7 @@ class Config:
         self.Encrypt = None
         self.EncryptNames = False
         self.IgnoreManifest = False
+        self.VerifyHashes = False
 
 Config = Config()
 s3 = None
@@ -121,11 +122,16 @@ def scanfiles(source, dest):
                 t = st[stat.ST_MTIME]
                 if not stat.S_ISREG(st.st_mode):
                     continue
-                h = md5file(fn).hexdigest()
+                if Config.VerifyHashes:
+                    h = md5file(fn).hexdigest()
             except (IOError, OSError):
                 print >>sys.stderr, "s3mirror: Unable to read:", fn
                 continue
-            if name not in manifest or h != manifest[name]['h']:
+            if name not in manifest \
+              or t != manifest[name]['t'] \
+              or (Config.VerifyHashes and h != manifest[name]['h']):
+                if not Config.VerifyHashes:
+                    h = md5file(fn).hexdigest()
                 tododir['files'].append({
                     'name': name,
                     'size': st[stat.ST_SIZE],
@@ -212,6 +218,8 @@ def main():
                 Config.EncryptNames = True
             elif sys.argv[a] == "--ignore-manifest":
                 Config.IgnoreManifest = True
+            elif sys.argv[a] == "--verify-hashes":
+                Config.VerifyHashes = True
             else:
                 print >>sys.stderr, "s3mirror: Unknown option:", sys.argv[a]
                 sys.exit(1)
@@ -220,9 +228,9 @@ def main():
                 source = sys.argv[a]
             elif dest is None:
                 dest = sys.argv[a]
-                if dest.startswith("/"):
+                while dest.startswith("/"):
                     dest = dest[1:]
-                if dest.endswith("/"):
+                while dest.endswith("/"):
                     dest = dest[:len(dest)-1]
             else:
                 print >>sys.stderr, "s3mirror: too many arguments"
