@@ -16,6 +16,7 @@ from pprint import pprint
 
 class Config:
     def __init__(self):
+        self.DryRun = False
         self.Encrypt = None
         self.EncryptNames = False
         self.IgnoreManifest = False
@@ -211,6 +212,8 @@ def main():
             elif sys.argv[a] == "-s" or sys.argv[a] == "--secret":
                 a += 1
                 secret = sys.argv[a]
+            elif sys.argv[a] == "--dry-run":
+                Config.DryRun = True
             elif sys.argv[a] == "--encrypt":
                 a += 1
                 Config.Encrypt = sys.argv[a]
@@ -238,7 +241,12 @@ def main():
         a += 1
     s3 = s3lib.S3Store(access, secret)
     todo = scanfiles(source, dest)
-    sendfiles(todo, dest)
+    if Config.DryRun:
+        total = sum([sum([f['size'] for f in d['files']]) for d in todo])
+        count = sum([len(d['files']) for d in todo])
+        print "s3mirror: dry run: %d files to update, %d bytes uncompressed" % (count, total)
+    else:
+        sendfiles(todo, dest)
 
 if __name__ == "__main__":
     main()
