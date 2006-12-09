@@ -8,6 +8,7 @@ import os
 import re
 import sha
 import socket
+import sys
 import time
 import urllib
 import xml.dom.minidom
