@@ -9,6 +9,7 @@ import sha
 import shutil
 import stat
 import sys
+import urllib
 
 import s3lib
 
@@ -16,6 +17,7 @@ from pprint import pprint
 
 class Config:
     def __init__(self):
+        self.Delete = False
         self.DryRun = False
         self.Encrypt = None
         self.EncryptNames = False
@@ -83,6 +85,7 @@ def md5file(fn):
 
 def scanfiles(source, dest):
     todo = []
+    allfiles = []
     for base, dirs, files in os.walk(source):
         tododir = {'dir': base, 'files': []}
         assert base.startswith(source)
@@ -141,9 +144,24 @@ def scanfiles(source, dest):
                 })
         if len(tododir['files']) > 0:
             todo.append(tododir)
-    return todo
+        allfiles += [prefix[1:]+x for x in files]
+    todelete = []
+    if Config.Delete:
+        bucket = dest+"/"
+        i = bucket.find('/')
+        prefix = bucket[i+1:]
+        query = "?prefix="+urllib.quote(prefix)
+        bucket = bucket[:i]
+        existing = s3.list(bucket, query)
+        destfiles = [x['Key'][len(prefix):] for x in existing['Contents']]
+        destfiles = [x for x in destfiles if not re.search(r"(^|/)\.s3mirror-MANIFEST$", x)]
+        for f in allfiles:
+            if f+".bz2" in destfiles:
+                destfiles.remove(f+".bz2")
+        todelete = destfiles
+    return todo, todelete
 
-def sendfiles(todo, dest):
+def sendfiles(todo, todelete, dest):
     total = sum([sum([f['size'] for f in d['files']]) for d in todo])
     done = 0
     for dir in todo:
@@ -196,6 +214,10 @@ def sendfiles(todo, dest):
             s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, s3.secret))
         else:
             s3.put(dest+prefix+".s3mirror-MANIFEST", mfdata)
+    for f in todelete:
+        fn = dest+"/"+f
+        print "delete", fn
+        s3.delete(fn)
 
 def main():
     global s3
@@ -212,6 +234,8 @@ def main():
             elif sys.argv[a] == "-s" or sys.argv[a] == "--secret":
                 a += 1
                 secret = sys.argv[a]
+            elif sys.argv[a] == "--delete":
+                Config.Delete = True
             elif sys.argv[a] == "--dry-run":
                 Config.DryRun = True
             elif sys.argv[a] == "--encrypt":
@@ -240,13 +264,13 @@ def main():
                 sys.exit(1)
         a += 1
     s3 = s3lib.S3Store(access, secret)
-    todo = scanfiles(source, dest)
+    todo, todelete = scanfiles(source, dest)
     if Config.DryRun:
         total = sum([sum([f['size'] for f in d['files']]) for d in todo])
         count = sum([len(d['files']) for d in todo])
-        print "s3mirror: dry run: %d files to update, %d bytes uncompressed" % (count, total)
+        print "s3mirror: dry run: %d files to update, %d bytes uncompressed, %d files to delete" % (count, total, len(todelete))
     else:
-        sendfiles(todo, dest)
+        sendfiles(todo, todelete, dest)
 
 if __name__ == "__main__":
     main()
