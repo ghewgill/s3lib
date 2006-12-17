@@ -30,6 +30,18 @@ s3 = None
 def shellquote(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
+suffixes = ['B','K','M','G','T','P','E','Z','Y']
+def metricsuffix(x):
+    e = 0
+    f = 1
+    while len(str(int(x/f))) > 3 and e+1 < len(suffixes):
+        e += 1
+        f *= 1024
+    if len(str(int(x/f))) == 1 and f > 1:
+        return "%.1f%s" % (1.0*x/f, suffixes[e])
+    else:
+        return "%d%s" % (x/f, suffixes[e])
+
 def xor(x, y):
     assert len(x) == len(y)
     r = ""
@@ -208,7 +220,8 @@ def sendfiles(todo, todelete, dest):
             except IOError:
                 pass
             done += finfo['size']
-            print done, '/', total
+            if sys.stdout.isatty():
+                print "%d%% (%s)" % (100*done/total, metricsuffix(total))
         mfdata = cPickle.dumps(manifest)
         if Config.EncryptNames:
             s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, s3.secret))
