@@ -114,7 +114,7 @@ def scanfiles(source, dest):
                 mfdata = mf.read()
                 mf.close()
                 manifest = cPickle.loads(mfdata)
-            except IOError:
+            except (IOError, EOFError):
                 pass
             if manifest is None:
                 try:
