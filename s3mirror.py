@@ -2,6 +2,7 @@
 
 import cPickle
 import hmac
+import fnmatch
 import md5
 import os
 import re
@@ -15,6 +16,9 @@ import s3lib
 
 from pprint import pprint
 
+# TODO: if a file vanishes during mirroring, s3lib.S3Exception: MissingContentLength: You must provide the Content-Length HTTP header.
+
+
 class Config:
     def __init__(self):
         self.Delete = False
@@ -23,6 +27,7 @@ class Config:
         self.EncryptNames = False
         self.IgnoreManifest = False
         self.VerifyHashes = False
+        self.Exclude = []
 
 Config = Config()
 s3 = None
@@ -133,6 +138,13 @@ def scanfiles(source, dest):
             if name == ".s3mirror-MANIFEST":
                 continue
             fn = os.path.join(base, name)
+            def excluded(fn):
+                for e in Config.Exclude:
+                    if fnmatch.fnmatch(fn, e):
+                        return True
+                return False
+            if excluded(fn):
+                continue
             try:
                 st = os.stat(fn)
                 t = st[stat.ST_MTIME]
@@ -260,6 +272,9 @@ def main():
                 Config.IgnoreManifest = True
             elif sys.argv[a] == "--verify-hashes":
                 Config.VerifyHashes = True
+            elif sys.argv[a] == "--exclude":
+                a += 1
+                Config.Exclude += [sys.argv[a]]
             else:
                 print >>sys.stderr, "s3mirror: Unknown option:", sys.argv[a]
                 sys.exit(1)
