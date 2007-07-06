@@ -231,7 +231,7 @@ class S3Store:
         while True:
             try:
                 self.server.putrequest(method, name+query)
-                if data:
+                if data is not None:
                     if isinstance(data, str):
                         datasize = len(data)
                     else:
@@ -242,7 +242,7 @@ class S3Store:
                 for hdr, value in headers.iteritems():
                     self.server.putheader(hdr, value)
                 self.server.endheaders()
-                if data:
+                if data is not None:
                     if isinstance(data, str):
                         self.server.send(data)
                     else:
