@@ -216,24 +216,28 @@ def sendfiles(todo, todelete, dest):
                 tf.write(data)
                 shutil.copyfileobj(f, tf)
                 data = tf
-            r = s3.put(sname, data)
+            r = f.close()
+            if r is not None:
+                print >>sys.stderr, "s3mirror: Error processing file %s: %s" % (fn, r)
+            else:
+                r = s3.put(sname, data)
+                manifest[name] = {
+                    't': t,
+                    'h': h,
+                    'm': r.getheader("ETag")
+                }
+                mfdata = cPickle.dumps(manifest)
+                try:
+                    mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
+                    mf.write(mfdata)
+                    mf.close()
+                except IOError:
+                    pass
+                done += finfo['size']
+                if sys.stdout.isatty():
+                    print "%d%% (%s)" % (100*done/total, metricsuffix(total))
             if tf is not None:
                 tf.close()
-            manifest[name] = {
-                't': t,
-                'h': h,
-                'm': r.getheader("ETag")
-            }
-            mfdata = cPickle.dumps(manifest)
-            try:
-                mf = open(os.path.join(base, ".s3mirror-MANIFEST"), "w")
-                mf.write(mfdata)
-                mf.close()
-            except IOError:
-                pass
-            done += finfo['size']
-            if sys.stdout.isatty():
-                print "%d%% (%s)" % (100*done/total, metricsuffix(total))
         mfdata = cPickle.dumps(manifest)
         if Config.EncryptNames:
             s3.put(dest+prefix+".s3mirror-MANIFEST", karn_encrypt(mfdata, s3.secret))
