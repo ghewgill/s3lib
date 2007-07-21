@@ -261,23 +261,41 @@ def do_put(argv):
 
 def do_delete(argv):
     force = False
+    recurse = False
     for a in range(len(argv)):
         if argv[a] == "-f":
             force = True
             continue
+        if argv[a] == "-r":
+            recurse = True
+            continue
         name = argv[a]
         if name[0] == "/":
             name = name[1:]
-        try:
+        if recurse:
+            m = re.match(r"(.*?)/(.+)", name)
+            if m is None:
+                print >>sys.stderr, "s3c: Name for recursive DELETE must contain /"
+                sys.exit(1)
+            bucket = m.group(1)
+            prefix = m.group(2)
+            if prefix[len(prefix)-1] != "/":
+                prefix += "/"
+            keys = s3.list(bucket, "?prefix="+urllib.quote(prefix))
+            for k in [x['Key'] for x in keys['Contents']]:
+                s3.delete(bucket+"/"+k)
             s3.delete(name)
-        except s3lib.S3Exception, e:
-            if force and e.info['Code'] == "BucketNotEmpty":
-                keys = s3.list(name)
-                for k in [x['Key'] for x in keys['Contents']]:
-                    s3.delete(name+"/"+k)
+        else:
+            try:
                 s3.delete(name)
-            else:
-                raise e
+            except s3lib.S3Exception, e:
+                if force and e.info['Code'] == "BucketNotEmpty":
+                    keys = s3.list(name)
+                    for k in [x['Key'] for x in keys['Contents']]:
+                        s3.delete(name+"/"+k)
+                    s3.delete(name)
+                else:
+                    raise e
         print "s3c: Deleted", name
 
 def main():
