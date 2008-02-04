@@ -269,7 +269,7 @@ class S3Store:
         if self.logfile is not None:
             line = "%s %d %s %s%s" % (self.access, time.time(), method, name, query)
             if method == "GET":
-                r = HTTPResponseLogger(r, self.logfile, line + " %d")
+                r = HTTPResponseLogger(r, self.logfile, re.sub("%", "%%", line) + " %d")
             elif method == "PUT":
                 log = open(self.logfile, "a")
                 if data is not None:
