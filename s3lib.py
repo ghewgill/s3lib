@@ -76,11 +76,14 @@ def parsetime(ts):
 class S3Exception(Exception):
     """Encapsulate an S3 exception."""
 
-    def __init__(self, r):
+    def __init__(self, r, readdata = True):
         Exception.__init__(self)
         self.status = r.status
-        doc = xml.dom.minidom.parseString(r.read())
-        self.info = makestruct(doc.documentElement)
+        if readdata:
+            doc = xml.dom.minidom.parseString(r.read())
+            self.info = makestruct(doc.documentElement)
+        else:
+            self.info = {'Code': self.status, 'Message': ""}
 
     def __str__(self):
         if 'BucketName' in self.info:
@@ -176,9 +179,9 @@ class S3Store:
                 raise Exception("s3c: Error: Unexpected element: %s" % doc.documentElement.tagName)
         return ret
 
-    def get(self, name, query = ""):
+    def get(self, name, query = "", method = "GET"):
         """Get an object from a bucket."""
-        r = self._exec("GET", "/"+urllib.quote(name), query = query)
+        r = self._exec(method, "/"+urllib.quote(name), query = query)
         if r.status != 200:
             raise S3Exception(r)
         return r
@@ -254,18 +257,26 @@ class S3Store:
                 r = self.server.getresponse()
                 if r.status < 300:
                     break
-                e = S3Exception(r)
+                if method == "HEAD":
+                    e = S3Exception(r, False)
+                else:
+                    e = S3Exception(r)
                 if e.info['Code'] != "InternalError":
                     raise e
+            except httplib.HTTPException, e:
+                print >>sys.stderr, "got httplib.HTTPException:", e, ", retrying"
+                pass
             except socket.error, e:
                 print >>sys.stderr, "got socket.error:", e, ", retrying"
                 pass
             #print >>sys.stderr, "got InternalError, sleeping", delay
+            self.server.close()
             time.sleep(delay)
             delay *= 2
             tries += 1
             if tries >= 5:
                 raise e
+            self.server.connect()
         if self.logfile is not None:
             line = "%s %d %s %s%s" % (self.access, time.time(), method, name, query)
             if method == "GET":
