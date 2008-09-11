@@ -11,6 +11,12 @@ import s3lib
 
 s3 = None
 
+def iff(x, t, f = None):
+    if x:
+        return t
+    else:
+        return f
+
 def humantime(t):
     if time.time() - t < 180*86400:
         return time.strftime("%b %d %H:%M", time.localtime(t))
@@ -31,9 +37,12 @@ def metricsuffix(x):
 
 def print_columns(align, data):
     maxwidth = [reduce(max, [len(str(x[c])) for x in data], 0) for c in range(len(align))]
+    nulls = [reduce(lambda x, y: x and y, [x[c] is None for x in data]) for c in range(len(align))]
     for d in data:
         s = ""
         for c in range(len(align)):
+            if nulls[c]:
+                continue
             if align[c]:
                 s += " "*(maxwidth[c]-len(str(d[c]))) + str(d[c]) + " "
             elif c+1 < len(align):
@@ -80,9 +89,11 @@ def do_ls(argv):
     # -s for dir sizes (summary of dir sizes)
     # -a for acls
     # -h for metric size units
+    # -v for verbose with hashes
     recursive = False
     subdirs = False
     metric = False
+    verbose = False
     args = []
     for a in argv:
         if a == "-h":
@@ -93,6 +104,9 @@ def do_ls(argv):
             continue
         if a == "-s":
             subdirs = True
+            continue
+        if a == "-v":
+            verbose = True
             continue
         args += [a]
     if metric:
@@ -156,6 +170,7 @@ def do_ls(argv):
                         bucketowner,
                         sizeconvert(sum([int(x['Size']) for x in objects])),
                         humantime(reduce(max, [s3lib.parsetime(x['LastModified']) for x in objects], 0)),
+                        iff(verbose, ' '*32),
                         c['Prefix'][len(prefix):]
                     )]
             items += [(
@@ -165,10 +180,11 @@ def do_ls(argv):
                 c['Owner']['DisplayName'],
                 sizeconvert(int(c['Size'])),
                 humantime(s3lib.parsetime(c['LastModified'])),
+                iff(verbose, re.sub('"', '', c['ETag'])),
                 c['Key'][len(prefix):]
             ) for c in s['Contents']]
-            items.sort(lambda x, y: cmp(x[6], y[6]))
-            print_columns((False,True,False,False,True,True,False), items)
+            items.sort(lambda x, y: cmp(x[7], y[7]))
+            print_columns((False,True,False,False,True,True,False,False), items)
         if len(args) > 1:
             print
 
