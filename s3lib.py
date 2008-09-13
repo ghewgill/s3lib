@@ -13,6 +13,8 @@ import time
 import urllib
 import xml.dom.minidom
 
+from collections import defaultdict
+
 def readConfig():
     access = None
     secret = None
@@ -91,6 +93,34 @@ class S3Exception(Exception):
         else:
             return "%s: %s" % (self.info['Code'], self.info['Message'])
 
+class Monitor:
+    def __init__(self):
+        self._attempt = defaultdict(int)
+        self._request = defaultdict(int)
+        self._bytesin = 0
+        self._bytesout = 0
+
+    def attempt(self, method):
+        self._attempt[method] += 1
+
+    def request(self, method):
+        self._request[method] += 1
+
+    def bytesin(self, n):
+        self._bytesin += n
+
+    def bytesout(self, n):
+        self._bytesout += n
+
+def cost(monitor):
+    GB = 2**30
+    return (
+        0.100 * monitor._bytesin / GB +
+        0.170 * monitor._bytesout / GB +
+        0.01 * monitor._request['PUT'] / 1000 +
+        0.01 * sum(v for k, v in monitor._request.items() if k != 'DELETE') / 10000
+    )
+
 class HTTPResponseLogger:
     """Provide logging facilities for an HTTP response object."""
 
@@ -126,6 +156,7 @@ class S3Store:
         self.access = access
         self.secret = secret
         self.logfile = logfile
+        self.monitors = []
         a, s, l = readConfig()
         if self.access is None:
             self.access = a
@@ -134,6 +165,15 @@ class S3Store:
         if self.logfile is None:
             self.logfile = l
         self.server = httplib.HTTPSConnection("s3.amazonaws.com", strict = True)
+
+    def addmonitor(self, monitor):
+        if monitor in self.monitors:
+            return False
+        self.monitors.append(monitor)
+        return True
+
+    def removemonitor(self, monitor):
+        self.monitors = [x for x in self.monitors if x != monitor]
 
     def create(self, bucket):
         """Create a new bucket."""
@@ -232,6 +272,8 @@ class S3Store:
         tries = 0
         delay = 0.1
         while True:
+            for m in self.monitors:
+                m.attempt(method)
             try:
                 self.server.putrequest(method, name+query)
                 if data is not None:
@@ -277,6 +319,10 @@ class S3Store:
             if tries >= 5:
                 raise e
             self.server.connect()
+        for m in self.monitors:
+            m.request(method)
+            if data is not None:
+                m.bytesin(datasize)
         if self.logfile is not None:
             line = "%s %d %s %s%s" % (self.access, time.time(), method, name, query)
             if method == "GET":
