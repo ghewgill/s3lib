@@ -183,7 +183,7 @@ class S3Store:
         r.read()
         return r
 
-    def list(self, bucket, query = ""):
+    def list(self, bucket, query = "", callback = None):
         """List contents of a bucket."""
         ret = None
         marker = None
@@ -209,6 +209,8 @@ class S3Store:
                 else:
                     ret['Contents'] += s['Contents']
                     ret['CommonPrefixes'] += s['CommonPrefixes']
+                if callback is not None:
+                    callback(count = len(ret['Contents']))
                 if s['IsTruncated'] != "true":
                     break
                 if 'NextMarker' in s:
