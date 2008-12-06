@@ -210,7 +210,7 @@ class S3Store:
                     ret['Contents'] += s['Contents']
                     ret['CommonPrefixes'] += s['CommonPrefixes']
                 if callback is not None:
-                    callback(count = len(ret['Contents']))
+                    callback(chunk = s['Contents'], count = len(ret['Contents']))
                 if s['IsTruncated'] != "true":
                     break
                 if 'NextMarker' in s:
